@@ -1,0 +1,87 @@
+@inject CourtAllocationService Allocation
+
+<div class="chip chip--@(Player.ColorIndex % 6)"
+     draggable="true"
+     @ondragstart="() => Allocation.StartDrag(Player)"
+     @ondragstart:stopPropagation>
+    <span class="chip__avatar">@Player.Initials</span>
+    <span class="chip__name">@Player.Name</span>
+    @if (IsWaiting)
+    {
+        <span class="chip__waiting">@FormatElapsed(Player.GetWaitingElapsed())</span>
+        <button class="chip__pause-btn" title="@(Player.IsPaused ? "Resume" : "Pause")" @onclick="TogglePause" @onclick:stopPropagation>
+            @(Player.IsPaused ? "▶" : "⏸")
+        </button>
+        <button class="chip__remove" title="Remove player" @onclick="() => Remove()" @onclick:stopPropagation>&times;</button>
+    }
+
+    @if (ShowRemove)
+    {
+        <div class="chip__actions">
+            <button class="chip__menu-btn" title="Actions" @onclick="ToggleMenu" @onclick:stopPropagation>▾</button>
+            @if (_menuOpen)
+            {
+                <div class="chip__menu" @onclick:stopPropagation>
+                    @foreach (var other in OtherPlayers)
+                    {
+                        <button class="chip__menu-item" @onclick="() => SwapWith(other)">@other.Name</button>
+                    }
+                    <hr />
+                    <button class="chip__menu-item" @onclick="() => Remove()">Remove</button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Player Player { get; set; } = null!;
+    [Parameter] public bool ShowRemove { get; set; } = true;
+    [Parameter] public bool IsWaiting { get; set; }
+
+    private bool _menuOpen;
+
+    private void ToggleMenu()
+    {
+        _menuOpen = !_menuOpen;
+    }
+
+    private void Remove()
+    {
+        Allocation.DeletePlayer(Player);
+        _menuOpen = false;
+    }
+
+    private void TogglePause()
+    {
+        Allocation.TogglePause(Player);
+    }
+
+    private static string FormatElapsed(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1)
+            return string.Format("{0:%h}h {0:%m}m", ts);
+        if (ts.TotalMinutes >= 1)
+            return string.Format("{0:%m}m {0:ss}s", ts);
+        return string.Format("{0:ss}s", ts);
+    }
+
+    private IEnumerable<Player> OtherPlayers
+    {
+        get
+        {
+            var list = new List<Player>();
+            list.AddRange(Allocation.Waiting);
+            foreach (var court in Allocation.Courts)
+                foreach (var slot in court.Slots)
+                    if (slot is not null) list.Add(slot);
+            return list.Where(p => p.Id != Player.Id).DistinctBy(p => p.Id);
+        }
+    }
+
+    private void SwapWith(Player other)
+    {
+        Allocation.SwapPlayers(Player, other);
+        _menuOpen = false;
+    }
+}

@@ -1,0 +1,15 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Shared.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(Shared.MainLayout)">
+            <div class="not-found">
+                <h1>Out of bounds</h1>
+                <p>That page isn't on the board.</p>
+                <a class="btn btn-primary" href="/">Back to the courts</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

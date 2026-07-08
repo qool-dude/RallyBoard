@@ -1,0 +1,40 @@
+@page "/"
+@inject CourtAllocationService Allocation
+@implements IDisposable
+
+<PageTitle>RallyBoard — Badminton Court Allocator</PageTitle>
+
+<section class="toolbar">
+    <div class="toolbar__group">
+        <label class="toolbar__label">Courts</label>
+        <div class="stepper">
+            <button @onclick="() => SetCourts(Allocation.Courts.Count - 1)" aria-label="Fewer courts">&minus;</button>
+            <span>@Allocation.Courts.Count</span>
+            <button @onclick="() => SetCourts(Allocation.Courts.Count + 1)" aria-label="More courts">+</button>
+        </div>
+    </div>
+
+    <div class="toolbar__group toolbar__group--actions">
+        <button class="btn btn-ghost" @onclick="Allocation.ShuffleAll">Shuffle everyone</button>
+        <button class="btn btn-ghost" @onclick="Allocation.ClearAllCourts">Clear all courts</button>
+    </div>
+</section>
+
+<section class="courts-grid">
+    @foreach (var court in Allocation.Courts)
+    {
+        <CourtCard Court="court" />
+    }
+</section>
+
+<WaitingPool />
+
+@code {
+    protected override void OnInitialized() => Allocation.OnChange += Refresh;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    private void SetCourts(int count) => Allocation.SetCourtCount(count);
+
+    public void Dispose() => Allocation.OnChange -= Refresh;
+}

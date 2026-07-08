@@ -1,0 +1,64 @@
+@inject CourtAllocationService Allocation
+
+<section class="waiting @(_dragOver ? "waiting--dragover" : "")"
+          @ondragover="@(() => { })" @ondragover:preventDefault
+          @ondragenter="() => _dragOver = true"
+          @ondragleave="() => _dragOver = false"
+          @ondrop="HandleDrop" @ondrop:preventDefault>
+    <div class="waiting__head">
+        <h3>Waiting Pool <span class="waiting__count">@Allocation.Waiting.Count</span></h3>
+        <form class="waiting__add" @onsubmit="AddPlayer" @onsubmit:preventDefault>
+            <input @bind="_newName" @bind:event="oninput" placeholder="Add a player…" />
+            <button type="submit" class="btn btn-primary btn-sm">Add</button>
+        </form>
+    </div>
+
+    @if (Allocation.Waiting.Count == 0)
+    {
+        <p class="waiting__empty">Nobody's waiting — drag a player here to bench them.</p>
+    }
+    else
+    {
+        <div class="waiting__chips">
+            @foreach (var player in Allocation.Waiting)
+            {
+                <PlayerChip Player="player" IsWaiting="true" />
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private string _newName = "";
+    private bool _dragOver;
+    private System.Timers.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        _timer = new System.Timers.Timer(1000);
+        _timer.Elapsed += (_, __) => InvokeAsync(StateHasChanged);
+        _timer.Start();
+    }
+
+    public void Dispose()
+    {
+        if (_timer is not null)
+        {
+            _timer.Stop();
+            _timer.Dispose();
+            _timer = null;
+        }
+    }
+
+    private void AddPlayer()
+    {
+        Allocation.AddPlayer(_newName);
+        _newName = "";
+    }
+
+    private void HandleDrop()
+    {
+        _dragOver = false;
+        Allocation.DropOnWaiting();
+    }
+}

@@ -1,0 +1,460 @@
+/* ==========================================================================
+   RallyBoard — design tokens
+   Palette lifted from an actual doubles court: deep court teal, net white,
+   and shuttlecock-cork coral as the single accent.
+   ========================================================================== */
+
+:root {
+  --ink: #0B2027;
+  --bg: #F1F5F3;
+  --panel: #FFFFFF;
+  --court: #145C6B;
+  --court-dark: #0E4652;
+  --court-line: rgba(244, 246, 241, 0.55);
+  --accent: #FF6B4A;
+  --accent-dim: #FFD9CC;
+  --gold: #F4C430;
+  --line: rgba(11, 32, 39, 0.1);
+
+  --font-display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+  --font-body: 'Inter', 'Segoe UI', sans-serif;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 14px 30px -18px rgba(11, 32, 39, 0.35);
+  --container: 1320px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  margin: 0;
+  color: var(--court-dark);
+}
+
+button { font-family: var(--font-body); }
+
+a { color: inherit; text-decoration: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+a:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Shell
+   ========================================================================== */
+
+.page { display: flex; flex-direction: column; min-height: 100vh; }
+main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; padding: 1.5rem clamp(1rem, 3vw, 2rem) 3rem; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.65em 1.3em;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary { background: var(--court); color: #fff; }
+.btn-primary:hover { background: var(--court-dark); }
+.btn-ghost { background: #fff; border-color: var(--line); color: var(--ink); }
+.btn-ghost:hover { background: var(--court); color: #fff; border-color: var(--court); }
+.btn-sm { padding: 0.5em 0.9em; font-size: 0.82rem; }
+
+.not-found { text-align: center; padding: 6rem 1.5rem; }
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.site-header {
+  background: var(--court-dark);
+  color: #fff;
+  border-bottom: 4px solid var(--accent);
+}
+.site-header__inner {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 1rem clamp(1rem, 3vw, 2rem);
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+.brand { display: flex; align-items: center; gap: 0.5rem; }
+.brand__mark { font-size: 1.5rem; }
+.brand__wordmark {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  letter-spacing: 0.03em;
+  color: #fff;
+}
+.brand__wordmark em { font-style: normal; color: var(--accent); }
+.tagline { font-size: 0.85rem; color: rgba(255,255,255,0.65); }
+
+.site-footer {
+  text-align: center;
+  padding: 1.5rem;
+  font-size: 0.8rem;
+  color: rgba(11,32,39,0.5);
+}
+
+/* ==========================================================================
+   Toolbar
+   ========================================================================== */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  margin: 1.5rem 0;
+  box-shadow: var(--shadow);
+}
+.toolbar__group { display: flex; align-items: center; gap: 0.8rem; }
+.toolbar__label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(11,32,39,0.55); font-weight: 600; }
+.toolbar__group--actions { gap: 0.6rem; }
+
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.stepper button {
+  width: 36px; height: 36px;
+  border: none; background: var(--bg);
+  cursor: pointer; font-size: 1.1rem; color: var(--court-dark);
+}
+.stepper button:hover { background: var(--accent-dim); }
+.stepper span { min-width: 32px; text-align: center; font-weight: 700; font-family: var(--font-display); font-size: 1.2rem; }
+
+/* ==========================================================================
+   Courts grid
+   ========================================================================== */
+
+.courts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.4rem;
+  margin-bottom: 2rem;
+}
+
+.court {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  border-top: 4px solid var(--court);
+  transition: border-color 0.2s ease;
+}
+.court--full { border-top-color: var(--accent); }
+
+.court__head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+.court__head h3 { font-size: 1.35rem; color: var(--court-dark); }
+.court__count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--bg);
+  color: var(--court-dark);
+  padding: 0.2em 0.6em;
+  border-radius: 999px;
+}
+.court--full .court__count { background: var(--accent-dim); color: var(--accent); }
+.court__actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+.court__timer { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: rgba(11,32,39,0.55); min-width: 40px; }
+
+.icon-btn {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--court-dark);
+}
+.icon-btn:hover { background: var(--bg); }
+.icon-btn--active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* The court field itself: teal mat, two team zones split by a net */
+.court__field {
+  display: flex;
+  background: linear-gradient(160deg, var(--court), var(--court-dark));
+  padding: 1rem;
+  gap: 0.6rem;
+  position: relative;
+  min-height: 220px;
+}
+.court__team {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  justify-content: center;
+  position: relative;
+}
+.court__team::before {
+  /* doubles sideline */
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed var(--court-line);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.court__net {
+  width: 4px;
+  align-self: stretch;
+  background: repeating-linear-gradient(
+    to bottom, var(--court-line) 0 6px, transparent 6px 12px
+  );
+  position: relative;
+}
+.court__net::before {
+  content: "";
+  position: absolute;
+  top: -1rem; left: 50%;
+  transform: translateX(-50%);
+  width: 3px; height: 1rem;
+  background: var(--court-line);
+}
+
+/* ==========================================================================
+   Slots + chips
+   ========================================================================== */
+
+.slot {
+  min-height: 56px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  padding: 0.3rem;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.slot--empty {
+  border: 1.5px dashed rgba(244,246,241,0.4);
+  justify-content: center;
+}
+.slot__placeholder { color: rgba(244,246,241,0.6); font-size: 0.8rem; }
+.slot--dragover {
+  background: rgba(255,107,74,0.25);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem 0.35rem 0.35rem;
+  box-shadow: 0 4px 10px -6px rgba(0,0,0,0.4);
+  cursor: grab;
+  width: 100%;
+  user-select: none;
+}
+.chip:active { cursor: grabbing; }
+.chip__avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.chip__name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.chip__remove {
+  background: none; border: none; cursor: pointer;
+  color: rgba(11,32,39,0.35);
+  font-size: 1rem; line-height: 1;
+  padding: 0.1rem 0.3rem;
+}
+.chip__remove:hover { color: var(--accent); }
+
+.chip__actions { position: relative; display: inline-flex; align-items: center; }
+.chip__menu-btn {
+  background: none; border: none; cursor: pointer; color: rgba(11,32,39,0.5);
+  padding: 0.1rem 0.4rem; border-radius: 6px; font-size: 0.9rem;
+}
+.chip__menu-btn:hover { background: rgba(11,32,39,0.03); color: var(--court-dark); }
+.chip__menu {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 20px -10px rgba(0,0,0,0.4);
+  padding: 0.35rem; min-width: 120px; z-index: 10;
+}
+.chip__menu-item {
+  display: block; width: 100%; text-align: left; background: none; border: none; padding: 0.45rem 0.6rem; cursor: pointer; border-radius: 6px; font-weight: 600;
+}
+.chip__menu-item:hover { background: var(--accent-dim); color: var(--accent); }
+
+.chip__waiting {
+  font-size: 0.78rem;
+  color: rgba(11,32,39,0.55);
+  margin-left: 0.4rem;
+}
+.chip__pause-btn {
+  background: none; border: none; cursor: pointer; padding: 0.15rem 0.4rem; margin-left: 0.3rem; border-radius: 6px; font-size: 0.9rem; color: rgba(11,32,39,0.6);
+}
+.chip__pause-btn:hover { background: rgba(11,32,39,0.03); color: var(--court-dark); }
+
+.chip--0 .chip__avatar { background: #145C6B; }
+.chip--1 .chip__avatar { background: #FF6B4A; }
+.chip--2 .chip__avatar { background: #F4C430; color: #0B2027; }
+.chip--3 .chip__avatar { background: #7A5CFA; }
+.chip--4 .chip__avatar { background: #2FA37F; }
+.chip--5 .chip__avatar { background: #E85D9C; }
+
+/* Chips sitting inside a dark court slot need the pill itself to read on teal */
+.slot .chip { background: rgba(255,255,255,0.95); }
+
+/* ==========================================================================
+   Waiting pool
+   ========================================================================== */
+
+.waiting {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.2rem;
+  border: 2px dashed transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.waiting--dragover { border-color: var(--accent); background: var(--accent-dim); }
+
+.waiting__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.waiting__head h3 { font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem; }
+.waiting__count {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--bg);
+  color: var(--court-dark);
+  padding: 0.15em 0.55em;
+  border-radius: 999px;
+}
+
+.waiting__add { display: flex; gap: 0.5rem; }
+.waiting__add input {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  min-width: 180px;
+}
+
+.waiting__empty { color: rgba(11,32,39,0.5); font-size: 0.9rem; padding: 1rem 0; }
+
+.waiting__chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.7rem;
+}
+
+/* ==========================================================================
+   Blazor error UI
+   ========================================================================== */
+
+#blazor-error-ui {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.9rem 1.2rem;
+  font-size: 0.9rem;
+  z-index: 1000;
+}
+#blazor-error-ui .reload { color: var(--ink); text-decoration: underline; margin-left: 0.4rem; }
+#blazor-error-ui .dismiss { position: absolute; right: 1rem; top: 0.8rem; cursor: pointer; }
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .courts-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .site-header__inner { flex-direction: column; align-items: flex-start; gap: 0.2rem; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar__group--actions { justify-content: space-between; }
+  .court__field { flex-direction: column; }
+  .court__net { width: auto; height: 4px; align-self: stretch; background: repeating-linear-gradient(to right, var(--court-line) 0 6px, transparent 6px 12px); }
+  .court__net::before { top: 50%; left: -1rem; transform: translateY(-50%); width: 1rem; height: 3px; }
+  .waiting__add { width: 100%; }
+  .waiting__add input { flex: 1; min-width: 0; }
+  .waiting__chips { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 420px) {
+  .waiting__chips { grid-template-columns: 1fr; }
+}
+
+/* Make waiting/player chips wider and prevent name wrapping */
+.waiting-pool .player-chip,
+.player-chip.waiting,
+.chip.waiting,
+.chip.player-chip,
+.player-chip
+{
+  min-width: 140px; /* increase as needed */
+  max-width: 260px;
+  display: inline-block;
+  padding: 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* Optional: allow chips to grow on hover to show full name */
+.player-chip:hover,
+.chip:hover {
+  max-width: 400px;
+  white-space: normal;
+}

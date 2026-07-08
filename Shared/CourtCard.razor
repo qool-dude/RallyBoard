@@ -1,0 +1,53 @@
+@implements IDisposable
+@inject CourtAllocationService Allocation
+
+<div class="court @(Court.IsFull ? "court--full" : "")">
+    <div class="court__head">
+        <h3>@Court.Name</h3>
+        <span class="court__count">@Court.FilledCount/4</span>
+        <div class="court__actions">
+            <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : "Start timer")" @onclick="ToggleTimer">
+                @(Court.IsRunning ? "⏸" : "▶")
+            </button>
+            <span class="court__timer">@Elapsed</span>
+            <button class="icon-btn" title="Clear court" @onclick="ClearCourt">&#8635;</button>
+        </div>
+    </div>
+
+    <div class="court__field">
+        <div class="court__team">
+            <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" />
+            <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" />
+        </div>
+        <div class="court__net" aria-hidden="true"></div>
+        <div class="court__team">
+            <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" />
+            <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" />
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Court Court { get; set; } = null!;
+
+    private System.Threading.Timer? _timer;
+
+    private string Elapsed => Court.StartedAt is null
+        ? "00:00"
+        : (DateTime.UtcNow - Court.StartedAt.Value).ToString(@"mm\:ss");
+
+    protected override void OnInitialized()
+    {
+        _timer = new System.Threading.Timer(_ =>
+        {
+            if (Court.IsRunning)
+                InvokeAsync(StateHasChanged);
+        }, null, 1000, 1000);
+    }
+
+    private void ToggleTimer() => Allocation.ToggleTimer(Court);
+
+    private void ClearCourt() => Allocation.ClearCourt(Court);
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -1,0 +1,30 @@
+@inject CourtAllocationService Allocation
+
+<div class="slot @(Player is null ? "slot--empty" : "") @(_dragOver ? "slot--dragover" : "")"
+     @ondragover="@(() => { })" @ondragover:preventDefault
+     @ondragenter="() => _dragOver = true"
+     @ondragleave="() => _dragOver = false"
+     @ondrop="HandleDrop" @ondrop:preventDefault>
+    @if (Player is not null)
+    {
+        <PlayerChip Player="Player" ShowRemove="true" />
+    }
+    else
+    {
+        <span class="slot__placeholder">Drop player</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Player? Player { get; set; }
+    [Parameter, EditorRequired] public Court Court { get; set; } = null!;
+    [Parameter, EditorRequired] public int Index { get; set; }
+
+    private bool _dragOver;
+
+    private void HandleDrop()
+    {
+        _dragOver = false;
+        Allocation.DropOnSlot(Court, Index);
+    }
+}
