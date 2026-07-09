@@ -7,7 +7,7 @@
      @ondrop="HandleDrop" @ondrop:preventDefault>
     @if (Player is not null)
     {
-        <PlayerChip Player="Player" ShowRemove="true" />
+        <PlayerChip Player="Player" ShowRemove="ShowRemove" />
     }
     else
     {
@@ -19,6 +19,7 @@
     [Parameter, EditorRequired] public Player? Player { get; set; }
     [Parameter, EditorRequired] public Court Court { get; set; } = null!;
     [Parameter, EditorRequired] public int Index { get; set; }
+    [Parameter] public bool ShowRemove { get; set; } = true;
 
     private bool _dragOver;
 

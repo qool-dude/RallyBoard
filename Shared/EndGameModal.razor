@@ -1,0 +1,171 @@
+@inject CourtAllocationService Allocation
+
+@if (Visible)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-panel" role="dialog" aria-labelledby="end-game-title" @onclick:stopPropagation>
+            <div class="modal-panel__head">
+                <h3 id="end-game-title">End game — @Court.Name</h3>
+                <button type="button" class="modal-panel__close" title="Close" @onclick="Close">&times;</button>
+            </div>
+
+            <p class="modal-panel__hint">Tap a team to mark the winner. Drag players to adjust the line-up.</p>
+
+            <div class="court__field end-game__field">
+                <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")"
+                     role="button"
+                     tabindex="0"
+                     title="Team A wins"
+                     @onclick='() => SelectWinner("TeamA")'
+                     @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
+                    <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
+                    <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
+                    @if (Winner == "TeamA")
+                    {
+                        <span class="end-game__badge">Winner</span>
+                    }
+                </div>
+
+                <div class="court__net" aria-hidden="true"></div>
+
+                <div class="court__team end-game__team @(Winner == "TeamB" ? "end-game__team--winner" : "")"
+                     role="button"
+                     tabindex="0"
+                     title="Team B wins"
+                     @onclick='() => SelectWinner("TeamB")'
+                     @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
+                    <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
+                    <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
+                    @if (Winner == "TeamB")
+                    {
+                        <span class="end-game__badge">Winner</span>
+                    }
+                </div>
+            </div>
+
+            @if (!_gameEnded)
+            {
+                <div class="end-game__scores">
+                    <div class="end-game__score-col">
+                        <span class="end-game__score-label">Team A</span>
+                        <div class="stepper end-game__score-stepper">
+                            <button type="button" aria-label="Decrease Team A score" @onclick="() => AdjustScore(true, -1)">&minus;</button>
+                            @* <span>@FormatScore(_teamAScore)</span> *@
+                            <input @bind="_teamAScore" @bind:event="oninput" placeholder="-" />
+                            <button type="button" aria-label="Increase Team A score" @onclick="() => AdjustScore(true, 1)">+</button>
+                        </div>
+                    </div>
+                    <span class="end-game__score-divider">:</span>
+                    <div class="end-game__score-col">
+                        <span class="end-game__score-label">Team B</span>
+                        <div class="stepper end-game__score-stepper">
+                            <button type="button" aria-label="Decrease Team B score" @onclick="() => AdjustScore(false, -1)">&minus;</button>
+                            @* <span>@FormatScore(_teamBScore)</span> *@
+                            <input @bind="_teamBScore" @bind:event="oninput" placeholder="-" />
+                            <button type="button" aria-label="Increase Team B score" @onclick="() => AdjustScore(false, 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-panel__actions">
+                    <button type="button" class="btn btn-ghost" @onclick="Close">Cancel</button>
+                    <button type="button" class="btn btn-primary" disabled="@(Winner is null)" @onclick="Confirm">End game</button>
+                </div>
+            }
+            else
+            {
+                <div class="modal-panel__actions">
+                    <button type="button" class="btn btn-ghost" @onclick="WaitforPlayers">Wait for More Players</button>
+                    <button type="button" class="btn btn-primary" @onclick="Close">Accept</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Court Court { get; set; } = null!;
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<EndGameResult> OnConfirm { get; set; }
+    [Parameter] public EventCallback OnWaitforPlayers { get; set; }
+
+    private string? Winner { get; set; }
+    private int? _teamAScore;
+    private int? _teamBScore;
+    private bool _scoresTouched;
+    private bool _gameEnded;
+
+    protected override void OnInitialized()
+    {
+        //if (Visible)
+        //    ResetForm();
+    }
+
+    protected override void OnParametersSet()
+    {
+        //if (Visible)
+        //    ResetForm();
+    }
+
+    public void ResetForm()
+    {
+        Winner = null;
+        _teamAScore = null;
+        _teamBScore = null;
+        _scoresTouched = false;
+        _gameEnded = false;
+    }
+
+    public void SetEnded() => _gameEnded = true;
+
+    private void SelectWinner(string winner)
+    {
+        Winner = winner;
+
+        if (!_scoresTouched)
+        {
+            switch (winner)
+            {
+                case "TeamA":
+                    _teamAScore = 21;
+                    _teamBScore = 10;
+                    break;
+                case "TeamB":
+                    _teamAScore = 10;
+                    _teamBScore = 21;
+                    break;
+
+            }
+        }
+    }
+
+    private void OnTeamKey(KeyboardEventArgs e, string winner)
+    {
+        if (e.Key is "Enter" or " ")
+            SelectWinner(winner);
+    }
+
+    private void AdjustScore(bool teamA, int delta)
+    {
+        _scoresTouched = true;
+
+        if (teamA)
+            _teamAScore = Math.Max(0, (_teamAScore ?? 0) + delta);
+        else
+            _teamBScore = Math.Max(0, (_teamBScore ?? 0) + delta);
+    }
+
+    private static string FormatScore(int? score) => score?.ToString() ?? "—";
+
+    private async Task Close() => await OnClose.InvokeAsync();
+    private async Task WaitforPlayers() => await OnWaitforPlayers.InvokeAsync();
+
+    private async Task Confirm()
+    {
+        if (Winner is null)
+            return;
+
+        await OnConfirm.InvokeAsync(new EndGameResult(Winner, _teamAScore, _teamBScore));
+    }
+}

@@ -1,361 +1,599 @@
-using RallyBoard.Models;
-using RallyBoard.Data;
 using Microsoft.EntityFrameworkCore;
+using RallyBoard.Data;
+using RallyBoard.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Threading;
 
-namespace RallyBoard.Services;
-
-public class CourtAllocationService
+namespace RallyBoard.Services
 {
-    public const int MaxCourts = 5;
-    public const int MinCourts = 1;
-
-    public List<Court> Courts { get; } = new();
-    public List<Player> Waiting { get; } = new();
-
-    public event Action? OnChange;
-
-    private Guid? _draggingId;
-    private readonly RallyBoardDbContext _db;
-
-    public CourtAllocationService(RallyBoardDbContext db)
+    public class CourtAllocationService : IDisposable
     {
-        _db = db;
-        _db.Database.EnsureCreated();
+        private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
+            private Timer? _tickTimer;
+            private Player? _draggedPlayer;
+            private int _tickCount;
 
-        for (int i = 1; i <= 2; i++)
-            Courts.Add(new Court { Id = i, Name = $"Court {i}" });
+            // raised once per second to allow UI to refresh elapsed times
+            public event Action? Tick;
 
-        // Load persisted players/assignments if present
-        var dbPlayers = _db.Players.AsNoTracking().ToList();
-        if (dbPlayers.Any())
+        // raised when state changes (players moved, courts modified, etc.)
+        public event Action? OnChange;
+
+        public List<Court> Courts { get; } = new();
+        public List<Player> Waiting { get; } = new();
+
+        public CourtAllocationService(IDbContextFactory<RallyBoardDbContext> dbFactory)
         {
-            var assignments = _db.Assignments.AsNoTracking().ToList();
-            var playersById = dbPlayers.ToDictionary(p => p.Id);
+            _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
 
-            // place assigned players onto courts
-            foreach (var assign in assignments)
+            for (int i = 1; i <= 2; i++)
+                Courts.Add(new Court { Id = i, Name = $"Court {i}" });
+
+            // Load persisted players/assignments if present
+            try
             {
-                var court = Courts.FirstOrDefault(c => c.Id == assign.CourtId);
-                if (court is not null && assign.SlotIndex >= 0 && assign.SlotIndex < court.Slots.Length)
+                using var db = _dbFactory.CreateDbContext();
+                db.Database.EnsureCreated();
+
+                var dbPlayers = db.Players.AsNoTracking().ToList();
+                if (dbPlayers.Any())
                 {
-                    if (playersById.TryGetValue(assign.PlayerId, out var player))
-                        court.Slots[assign.SlotIndex] = player;
+                    var assignments = db.Assignments.AsNoTracking().ToList();
+                    var playersById = dbPlayers.ToDictionary(p => p.Id);
+
+                    // place assigned players onto courts
+                    foreach (var assign in assignments)
+                    {
+                        var court = Courts.FirstOrDefault(c => c.Id == assign.CourtId);
+                        if (court is not null && assign.SlotIndex >= 0 && assign.SlotIndex < court.Slots.Length)
+                        {
+                            if (playersById.TryGetValue(assign.PlayerId, out var player))
+                                court.Slots[assign.SlotIndex] = player;
+                        }
+                    }
+
+                    // players not assigned go to waiting
+                    var assignedIds = assignments.Select(a => a.PlayerId).ToHashSet();
+                    foreach (var p in dbPlayers)
+                        if (!assignedIds.Contains(p.Id)) Waiting.Add(p);
+                }
+                else
+                {
+                    // seed defaults
+                    foreach (var name in new[] { "Ayesha", "Bilal", "Sana", "Usman", "Hina", "Zain" })
+                    {
+                        var p = new Player { Name = name };
+                        MarkPlayerWaiting(p);
+                        Waiting.Add(p);
+                    }
+
+                    PersistState();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CourtAllocationService DB init error: {ex}");
+            }
+
+            // start centralized tick timer for UI updates (every 1s)
+            _tickTimer = new Timer(_ =>
+            {
+                try
+                {
+                    _tickCount++;
+                    // Log every 10 ticks to avoid spam
+                    if (_tickCount % 10 == 0)
+                        Console.WriteLine($"Tick fired {_tickCount} times");
+                    Tick?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    // prevent timer termination on unhandled exceptions; surface to logs
+                    Console.WriteLine($"Tick error: {ex}");
+                }
+            }, null, 0, 1000);
+
+            // diagnostic logging to confirm single instance and timer start
+            try
+            {
+                using var db = _dbFactory.CreateDbContext();
+                Console.WriteLine($"CourtAllocationService ctor: Hash={GetHashCode()}, PlayersLoaded={db.Players.Count()}");
+                Console.WriteLine("CourtAllocationService tick timer started");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CourtAllocationService ctor logging error: {ex}");
+            }
+        }
+
+        public void MarkPlayerWaiting(Player p)
+        {
+            if (p is null) return;
+            if (p.WaitingSince is not null) return; // already waiting)
+            p.WaitingSince = DateTime.UtcNow;
+            p.IsPaused = false;
+            p.PausedAt = null;
+            p.PausedAccumulated = TimeSpan.Zero;
+        }
+
+        public void PersistState()
+        {
+            try
+            {
+                using var db = _dbFactory.CreateDbContext();
+
+                // Simplest approach: wipe and repopulate Players and Assignments to match in-memory state
+                // WARNING: this will remove any external changes made directly in the DB.
+
+                var existingAssignments = db.Assignments.ToList();
+                db.Assignments.RemoveRange(existingAssignments);
+
+                var existingPlayers = db.Players.ToList();
+                db.Players.RemoveRange(existingPlayers);
+
+                db.SaveChanges();
+
+                // collect all players from courts and waiting (skip nulls)
+                var playersOnCourts = Courts.SelectMany(c => c.Slots.Where(s => s is not null)).Cast<Player>();
+                var allPlayers = Waiting.Concat(playersOnCourts)
+                    .GroupBy(p => p.Id)
+                    .Select(g => g.First())
+                    .ToList();
+
+                // insert players
+                foreach (var p in allPlayers)
+                {
+                    db.Players.Add(new Player
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        ColorIndex = p.ColorIndex,
+                        WaitingSince = p.WaitingSince,
+                        IsPaused = p.IsPaused,
+                        PausedAt = p.PausedAt,
+                        PausedAccumulated = p.PausedAccumulated
+                    });
+                }
+
+                db.SaveChanges();
+
+                // insert assignments for players on courts
+                foreach (var court in Courts)
+                {
+                    for (int i = 0; i < court.Slots.Length; i++)
+                    {
+                        var player = court.Slots[i];
+                        if (player is null) continue;
+
+                        db.Assignments.Add(new Assignment
+                        {
+                            CourtId = court.Id,
+                            SlotIndex = i,
+                            PlayerId = player.Id
+                        });
+                    }
+                }
+
+                db.SaveChanges();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"PersistState error: {ex}");
+            }
+        }
+
+        public void ClearAllCourts()
+        {
+            // Move all players from courts back to waiting
+            foreach (var court in Courts)
+            {
+                for (int i = 0; i < court.Slots.Length; i++)
+                {
+                    var player = court.Slots[i];
+                    if (player is not null)
+                    {
+                        MarkPlayerWaiting(player);
+                        Waiting.Add(player);
+                        court.Slots[i] = null;
+                    }
                 }
             }
 
-            // players not assigned go to waiting
-            var assignedIds = assignments.Select(a => a.PlayerId).ToHashSet();
-            foreach (var p in dbPlayers)
-                if (!assignedIds.Contains(p.Id)) Waiting.Add(p);
+            PersistState();
+            OnChange?.Invoke();
         }
-        else
+
+        public void ShuffleAll()
         {
-            // seed defaults
-            foreach (var name in new[] { "Ayesha", "Bilal", "Sana", "Usman", "Hina", "Zain" })
+            // Collect all players (from courts and waiting)
+            var allPlayers = Waiting.Concat(Courts.SelectMany(c => c.Slots.Where(s => s is not null))).ToList();
+
+            // Clear all courts
+            foreach (var court in Courts)
             {
-                var p = new Player { Name = name };
-                MarkPlayerWaiting(p);
-                Waiting.Add(p);
+                Array.Clear(court.Slots, 0, court.Slots.Length);
+            }
+
+            Waiting.Clear();
+
+            // Shuffle and re-allocate players randomly
+            var random = new Random();
+            allPlayers = allPlayers.OrderBy(_ => random.Next()).ToList();
+
+            // Allocate to courts first, then remaining to waiting
+            int playerIndex = 0;
+            foreach (var court in Courts)
+            {
+                for (int i = 0; i < court.Slots.Length && playerIndex < allPlayers.Count; i++)
+                {
+                    court.Slots[i] = allPlayers[playerIndex++];
+                }
+            }
+
+            // Remaining players go to waiting
+            while (playerIndex < allPlayers.Count)
+            {
+                Waiting.Add(allPlayers[playerIndex++]);
             }
 
             PersistState();
+            OnChange?.Invoke();
         }
-    }
 
-    // ---------- Court count ----------
-
-    public void SetCourtCount(int count)
-    {
-        count = Math.Clamp(count, MinCourts, MaxCourts);
-
-        while (Courts.Count < count)
-            Courts.Add(new Court { Id = Courts.Count + 1, Name = $"Court {Courts.Count + 1}" });
-
-        while (Courts.Count > count)
+        public void PickGame(Court c)
         {
-            var last = Courts[^1];
-            foreach (var p in last.Slots.Where(p => p is not null))
+            // Collect all players (from courts and waiting)
+            var allPlayers = Waiting.ToList();
+
+            // Shuffle and re-allocate players randomly
+            var random = new Random();
+            allPlayers = allPlayers.OrderBy(_ => random.Next()).ToList();
+
+            // Allocate to court and remove from waiting
+            for (int i = 0; i < c.Slots.Length; i++)
             {
-                MarkPlayerWaiting(p!);
-                Waiting.Add(p!);
+                c.Slots[i] = allPlayers[i];
+                Waiting.Remove(allPlayers[i]);
             }
-            Courts.RemoveAt(Courts.Count - 1);
+
+            // Remaining players go to waiting
+            //while (playerIndex < allPlayers.Count)
+            //{
+            //    Waiting.Add(allPlayers[playerIndex++]);
+            //}
+
+            PersistState();
+            OnChange?.Invoke();
         }
 
-        Notify();
-    }
-
-    // ---------- Player management ----------
-
-    public void AddPlayer(string name)
-    {
-        name = name.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return;
-        var p = new Player { Name = name };
-        MarkPlayerWaiting(p);
-        Waiting.Add(p);
-        Notify();
-    }
-
-    public void DeletePlayer(Player player)
-    {
-        if (player is null) return;
-        RemovePlayerFromAll(player.Id);
-        Notify();
-    }
-
-    // ---------- Drag and drop ----------
-
-    public void StartDrag(Player player) => _draggingId = player.Id;
-
-    public void DropOnSlot(Court targetCourt, int targetIndex)
-    {
-        if (_draggingId is null) return;
-        var dragged = FindPlayer(_draggingId.Value);
-        if (dragged is null) { _draggingId = null; return; }
-        var displaced = targetCourt.Slots[targetIndex];
-        var (sourceCourt, sourceIndex) = FindCourtSlot(dragged);
-
-        // Ensure no duplicates: remove any occurrences first
-        RemovePlayerFromAll(dragged.Id);
-        if (displaced is not null && displaced.Id != dragged.Id)
-            RemovePlayerFromAll(displaced.Id);
-
-        // Place dragged player into target slot
-        targetCourt.Slots[targetIndex] = dragged;
-
-        // Put whatever was in the target slot into the dragged player's old spot (swap)
-        if (displaced is not null && displaced.Id != dragged.Id)
+        public void SetCourtCount(int count)
         {
-            if (sourceCourt is not null) sourceCourt.Slots[sourceIndex] = displaced;
-            else { MarkPlayerWaiting(displaced); Waiting.Add(displaced); }
-        }
+            // Ensure count is at least 1
+            if (count < 1) count = 1;
 
-        _draggingId = null;
-        Notify();
-    }
+            int currentCount = Courts.Count;
 
-    public void DropOnWaiting()
-    {
-        if (_draggingId is null) return;
-        var dragged = FindPlayer(_draggingId.Value);
-        if (dragged is null) { _draggingId = null; return; }
-
-        var (sourceCourt, sourceIndex) = FindCourtSlot(dragged);
-        if (sourceCourt is not null)
-        {
-            sourceCourt.Slots[sourceIndex] = null;
-            // ensure no duplicates
-            RemovePlayerFromAll(dragged.Id);
-            MarkPlayerWaiting(dragged);
-            Waiting.Add(dragged);
-        }
-        // already in waiting -> no-op (reordering not tracked)
-
-        _draggingId = null;
-        Notify();
-    }
-
-    private void RemovePlayerFromAll(Guid id)
-    {
-        // Remove from waiting pool
-        Waiting.RemoveAll(p => p.Id == id);
-
-        // Remove from any court slots
-        foreach (var court in Courts)
-            for (int i = 0; i < court.Slots.Length; i++)
-                if (court.Slots[i]?.Id == id) court.Slots[i] = null;
-    }
-
-    private void PersistState()
-    {
-        // Persist players and assignments by clearing and re-inserting current state.
-        // Collect all players
-        var allPlayers = Waiting.Concat(Courts.SelectMany(c => c.Slots).Where(p => p is not null))
-            .Cast<Player>()
-            .DistinctBy(p => p.Id)
-            .ToList();
-
-        // Clear existing DB state
-        _db.Assignments.RemoveRange(_db.Assignments);
-        _db.Players.RemoveRange(_db.Players);
-        _db.SaveChanges();
-
-        // Insert players
-        _db.Players.AddRange(allPlayers);
-        _db.SaveChanges();
-
-        // Insert assignments
-        var assigns = new List<Assignment>();
-        foreach (var court in Courts)
-        for (int i = 0; i < court.Slots.Length; i++)
-        {
-            var p = court.Slots[i];
-            if (p is not null)
-                assigns.Add(new Assignment { CourtId = court.Id, SlotIndex = i, PlayerId = p.Id });
-        }
-
-        if (assigns.Any())
-        {
-            _db.Assignments.AddRange(assigns);
-            _db.SaveChanges();
-        }
-    }
-
-    private Player? FindPlayer(Guid id)
-    {
-        var fromWaiting = Waiting.FirstOrDefault(p => p.Id == id);
-        if (fromWaiting is not null) return fromWaiting;
-
-        foreach (var court in Courts)
-            foreach (var slot in court.Slots)
-                if (slot?.Id == id) return slot;
-
-        return null;
-    }
-
-    private (Court? court, int index) FindCourtSlot(Player player)
-    {
-        foreach (var court in Courts)
-            for (int i = 0; i < court.Slots.Length; i++)
-                if (court.Slots[i]?.Id == player.Id) return (court, i);
-        return (null, -1);
-    }
-
-    /// <summary>
-    /// Swap two players' positions. Each player may be in a court slot or in the waiting pool.
-    /// After this operation the two players will have exchanged places.
-    /// </summary>
-    public void SwapPlayers(Player a, Player b)
-    {
-        if (a is null || b is null) return;
-        if (a.Id == b.Id) return;
-
-        var (courtA, idxA) = FindCourtSlot(a);
-        var (courtB, idxB) = FindCourtSlot(b);
-        // Remove any duplicates/occurrences first
-        RemovePlayerFromAll(a.Id);
-        RemovePlayerFromAll(b.Id);
-
-        // Place A into B's old position
-        if (courtB is not null) courtB.Slots[idxB] = a;
-        else { MarkPlayerWaiting(a); Waiting.Add(a); }
-
-        // Place B into A's old position
-        if (courtA is not null) courtA.Slots[idxA] = b;
-        else { MarkPlayerWaiting(b); Waiting.Add(b); }
-
-        Notify();
-    }
-
-    // ---------- Bulk actions ----------
-
-    public void ShuffleAll()
-    {
-        var everyone = Waiting.Concat(Courts.SelectMany(c => c.Slots).Where(p => p is not null))
-            .Cast<Player>()
-            .OrderBy(_ => Random.Shared.Next())
-            .ToList();
-
-        Waiting.Clear();
-        foreach (var court in Courts)
-        {
-            court.StartedAt = null;
-            for (int i = 0; i < 4; i++)
-                court.Slots[i] = null;
-        }
-
-        int courtIdx = 0, slotIdx = 0;
-        foreach (var player in everyone)
-        {
-            if (courtIdx < Courts.Count)
+            if (count > currentCount)
             {
-                Courts[courtIdx].Slots[slotIdx] = player;
-                slotIdx++;
-                if (slotIdx == 4) { slotIdx = 0; courtIdx++; }
+                // Add new courts
+                for (int i = currentCount + 1; i <= count; i++)
+                {
+                    Courts.Add(new Court { Id = i, Name = $"Court {i}" });
+                }
+            }
+            else if (count < currentCount)
+            {
+                // Remove courts and move players back to waiting
+                for (int i = currentCount; i > count; i--)
+                {
+                    var court = Courts.FirstOrDefault(c => c.Id == i);
+                    if (court is not null)
+                    {
+                        // Move all players from removed court to waiting and start their timers
+                        foreach (var player in court.Slots.Where(p => p is not null))
+                        {
+                            MarkPlayerWaiting(player);
+                            Waiting.Add(player);
+                        }
+
+                        Courts.Remove(court);
+                    }
+                }
+            }
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void StartDrag(Player player)
+        {
+            _draggedPlayer = player;
+            Console.WriteLine($"Drag started: {player?.Name}");
+        }
+
+        public void DropOnSlot(Court court, int slotIndex)
+        {
+            if (_draggedPlayer is null || slotIndex < 0 || slotIndex >= court.Slots.Length)
+                return;
+
+            var targetPlayer = court.Slots[slotIndex];
+
+            if (targetPlayer is not null && targetPlayer.Id != _draggedPlayer.Id)
+            {
+                var dragged = _draggedPlayer;
+                _draggedPlayer = null;
+                SwapPlayers(dragged, targetPlayer);
+                return;
+            }
+
+            RemovePlayerFromAllLocations(_draggedPlayer);
+            court.Slots[slotIndex] = _draggedPlayer;
+            _draggedPlayer = null;
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void DropOnPlayer(Player target)
+        {
+            if (_draggedPlayer is null || target is null || _draggedPlayer.Id == target.Id)
+                return;
+
+            var dragged = _draggedPlayer;
+            _draggedPlayer = null;
+            SwapPlayers(dragged, target);
+        }
+
+        public void DropOnWaiting()
+        {
+            if (_draggedPlayer is null)
+                return;
+
+            // Remove from courts
+            RemovePlayerFromAllLocations(_draggedPlayer);
+
+            // Add to waiting and start/reset waiting timer
+            if (!Waiting.Contains(_draggedPlayer))
+            {
+                MarkPlayerWaiting(_draggedPlayer);
+                Waiting.Add(_draggedPlayer);
+            }
+
+            _draggedPlayer = null;
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void DeletePlayer(Player player)
+        {
+            // Remove player from courts and waiting
+            RemovePlayerFromAllLocations(player);
+
+            // Note: we don't delete from DB automatically; just remove from in-memory state
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void TogglePause(Player player)
+        {
+            if (player is null) return;
+
+            player.IsPaused = !player.IsPaused;
+
+            if (player.IsPaused)
+            {
+                player.PausedAt = DateTime.UtcNow;
             }
             else
             {
-                MarkPlayerWaiting(player);
-                Waiting.Add(player);
+                // Resume: accumulate paused time
+                if (player.PausedAt is not null)
+                {
+                    var pauseDuration = DateTime.UtcNow - player.PausedAt.Value;
+                    player.PausedAccumulated += pauseDuration;
+                    player.PausedAt = null;
+                }
             }
-        }
 
-        Notify();
-    }
-
-    public void ClearCourt(Court court)
-    {
-        court.StartedAt = null;
-        for (int i = 0; i < 4; i++)
-        {
-                if (court.Slots[i] is not null) { MarkPlayerWaiting(court.Slots[i]!); Waiting.Add(court.Slots[i]!); }
-            court.Slots[i] = null;
-        }
-        Notify();
-    }
-
-    public void ClearAllCourts()
-    {
-        foreach (var court in Courts)
-        {
-            court.StartedAt = null;
-            for (int i = 0; i < 4; i++)
-            {
-                if (court.Slots[i] is not null) { MarkPlayerWaiting(court.Slots[i]!); Waiting.Add(court.Slots[i]!); }
-                court.Slots[i] = null;
-            }
-        }
-        Notify();
-    }
-
-    public void ToggleTimer(Court court) => court.StartedAt = court.IsRunning ? null : DateTime.UtcNow;
-
-    // ---------- Waiting management helpers ----------
-
-    private void MarkPlayerWaiting(Player p)
-    {
-        if (p is null) return;
-        p.WaitingSince = DateTime.UtcNow;
-        p.IsPaused = false;
-        p.PausedAt = null;
-        p.PausedAccumulated = TimeSpan.Zero;
-    }
-
-    public void TogglePause(Player p)
-    {
-        if (p is null) return;
-        // Only allow pause when player is in waiting pool
-        if (!Waiting.Any(w => w.Id == p.Id)) return;
-
-        if (p.IsPaused)
-        {
-            // unpause
-            if (p.PausedAt is not null)
-                p.PausedAccumulated += DateTime.UtcNow - p.PausedAt.Value;
-            p.PausedAt = null;
-            p.IsPaused = false;
-        }
-        else
-        {
-            // pause
-            p.IsPaused = true;
-            p.PausedAt = DateTime.UtcNow;
-        }
-
-        Notify();
-    }
-
-    private void Notify()
-    {
-        try
-        {
             PersistState();
+            OnChange?.Invoke();
         }
-        catch
+
+        public void SwapPlayers(Player player1, Player player2)
         {
-            // swallow persistence errors to avoid breaking UI; could log in real app
+            if (player1 is null || player2 is null) return;
+
+            // Find locations
+            var (location1, pos1) = FindPlayerLocation(player1);
+            var (location2, pos2) = FindPlayerLocation(player2);
+
+            // Perform swap based on location types
+            if (location1 == "waiting" && location2 == "waiting")
+            {
+                var idx1 = Waiting.IndexOf(player1);
+                var idx2 = Waiting.IndexOf(player2);
+                if (idx1 >= 0 && idx2 >= 0)
+                {
+                    Waiting[idx1] = player2;
+                    Waiting[idx2] = player1;
+                }
+            }
+            else if (location1 == "waiting" && location2 == "court")
+            {
+                if (pos2 is (Court court2, int slot2))
+                {
+                    court2.Slots[slot2] = player1;
+                    Waiting.Remove(player1);
+                    Waiting.Add(player2);
+                }
+            }
+            else if (location1 == "court" && location2 == "waiting")
+            {
+                if (pos1 is (Court court1, int slot1))
+                {
+                    court1.Slots[slot1] = player2;
+                    Waiting.Remove(player2);
+                    Waiting.Add(player1);
+                }
+            }
+            else if (location1 == "court" && location2 == "court")
+            {
+                if (pos1 is (Court court1, int slot1) && pos2 is (Court court2, int slot2))
+                {
+                    court1.Slots[slot1] = player2;
+                    court2.Slots[slot2] = player1;
+                }
+            }
+
+            PersistState();
+            OnChange?.Invoke();
         }
-        OnChange?.Invoke();
+
+        public void AddPlayer(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            // Calculate color based on total existing players (more reliable than a global seed)
+            int totalPlayers = Waiting.Count + Courts.SelectMany(c => c.Slots).Count(s => s is not null);
+            int colorIndex = totalPlayers % 6;
+
+            var player = new Player { Name = name, ColorIndex = colorIndex };
+            Console.WriteLine($"AddPlayer: Created {player.Name} with ColorIndex={player.ColorIndex} (totalPlayers={totalPlayers})");
+            MarkPlayerWaiting(player);
+            Waiting.Add(player);
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void ClearCourt(Court court)
+        {
+            if (court is null) return;
+
+            for (int i = 0; i < court.Slots.Length; i++)
+            {
+                var player = court.Slots[i];
+                if (player is not null)
+                {
+                    MarkPlayerWaiting(player);
+                    Waiting.Add(player);
+                    court.Slots[i] = null;
+                }
+            }
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void EndGame(Court court, string winner, int? teamAScore, int? teamBScore)
+        {
+            if (court is null || string.IsNullOrWhiteSpace(winner))
+                return;
+
+            if (winner is not ("TeamA" or "TeamB" or "Tie"))
+                return;
+
+            if (court.IsRunning)
+                court.PausedAt = DateTime.UtcNow;
+
+            for (int i = 0; i < court.Slots.Length; i++)
+            {
+                var player = court.Slots[i];
+                if (player is not null)
+                {
+                    MarkPlayerWaiting(player);
+                    Waiting.Add(player);
+                }
+            }
+
+            court.Reset();
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        public void ToggleTimer(Court court)
+        {
+            if (court is null) return;
+
+            if (court.IsRunning)
+            {
+                // Pause: record the pause time
+                court.PausedAt = DateTime.UtcNow;
+            }
+            else if (court.IsPaused)
+            {
+                // Resume: add the pause duration to accumulated time and clear pause marker
+                var pauseDuration = court.PausedAt.Value - court.StartedAt!.Value;
+                court.AccumulatedTime += pauseDuration;
+                court.StartedAt = DateTime.UtcNow;
+                court.PausedAt = null;
+            }
+            else
+            {
+                // Start: initial start
+                court.StartedAt = DateTime.UtcNow;
+                court.PausedAt = null;
+                court.AccumulatedTime = TimeSpan.Zero;
+            }
+
+            for (int i = 0; i < court.Slots.Length; i++)
+            {
+                if (court.Slots[i]?.WaitingSince != null)
+                {
+                    Player p = (Player)court.Slots[i];
+                    p.TotalWaiting += DateTime.UtcNow - p.WaitingSince.Value;
+                    p.WaitingSince = null;
+                }
+            }
+
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        private (string location, object? position) FindPlayerLocation(Player player)
+        {
+            // Check in waiting
+            if (Waiting.Contains(player))
+                return ("waiting", null);
+
+            // Check in courts
+            foreach (var court in Courts)
+            {
+                for (int i = 0; i < court.Slots.Length; i++)
+                {
+                    if (court.Slots[i]?.Id == player.Id)
+                        return ("court", (court, i));
+                }
+            }
+
+            return ("unknown", null);
+        }
+
+        private void RemovePlayerFromAllLocations(Player player)
+        {
+            // Remove from waiting
+            Waiting.RemoveAll(p => p.Id == player.Id);
+
+            // Remove from courts
+            foreach (var court in Courts)
+            {
+                for (int i = 0; i < court.Slots.Length; i++)
+                {
+                    if (court.Slots[i]?.Id == player.Id)
+                        court.Slots[i] = null;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            _tickTimer?.Dispose();
+        }
     }
 }

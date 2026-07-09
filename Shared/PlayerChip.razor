@@ -1,9 +1,14 @@
 @inject CourtAllocationService Allocation
+@implements IDisposable
 
-<div class="chip chip--@(Player.ColorIndex % 6)"
+<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "")"
      draggable="true"
      @ondragstart="() => Allocation.StartDrag(Player)"
-     @ondragstart:stopPropagation>
+     @ondragstart:stopPropagation
+     @ondragover="@(() => { })" @ondragover:preventDefault
+     @ondragenter="() => _dragOver = true"
+     @ondragleave="() => _dragOver = false"
+     @ondrop="HandleDrop" @ondrop:preventDefault @ondrop:stopPropagation>
     <span class="chip__avatar">@Player.Initials</span>
     <span class="chip__name">@Player.Name</span>
     @if (IsWaiting)
@@ -40,6 +45,13 @@
     [Parameter] public bool IsWaiting { get; set; }
 
     private bool _menuOpen;
+    private bool _dragOver;
+
+    private void HandleDrop()
+    {
+        _dragOver = false;
+        Allocation.DropOnPlayer(Player);
+    }
 
     private void ToggleMenu()
     {
@@ -83,5 +95,26 @@
     {
         Allocation.SwapPlayers(Player, other);
         _menuOpen = false;
+    }
+    protected override void OnInitialized()
+    {
+        Console.WriteLine($"PlayerChip.OnInitialized: Player={Player?.Name}, ServiceHash={Allocation?.GetHashCode()}");
+        if (Allocation is not null)
+            Allocation.Tick += OnTick;
+        base.OnInitialized();
+    }
+
+    private void OnTick()
+    {
+        Console.WriteLine($"PlayerChip.OnTick: Player={Player?.Name}");
+        // ensure UI update happens on the renderer thread
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Console.WriteLine($"PlayerChip.Dispose: Player={Player?.Name}");
+        if (Allocation is not null)
+            Allocation.Tick -= OnTick;
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Microsoft.EntityFrameworkCore;
 using RallyBoard.Data;
 using RallyBoard.Services;
 
@@ -35,9 +36,12 @@ if (conn.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
     conn = npgBuilder.ConnectionString;
 }
 
-builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
+// Register a DbContext factory so singletons can create short-lived DbContext instances
+builder.Services.AddDbContextFactory<RallyBoardDbContext>(options => options.UseNpgsql(conn));
 
-builder.Services.AddScoped<CourtAllocationService>();
+builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
+// Centralized CourtAllocationService used by UI components (use singleton so all components share one timer)
+builder.Services.AddSingleton<CourtAllocationService>();
 
 var app = builder.Build();
 

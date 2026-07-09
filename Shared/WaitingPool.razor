@@ -1,4 +1,5 @@
 @inject CourtAllocationService Allocation
+@implements IDisposable
 
 <section class="waiting @(_dragOver ? "waiting--dragover" : "")"
           @ondragover="@(() => { })" @ondragover:preventDefault
@@ -20,7 +21,7 @@
     else
     {
         <div class="waiting__chips">
-            @foreach (var player in Allocation.Waiting)
+            @foreach (var player in Allocation.Waiting.OrderByDescending(r => r.GetWaitingElapsed()))
             {
                 <PlayerChip Player="player" IsWaiting="true" />
             }
@@ -31,23 +32,23 @@
 @code {
     private string _newName = "";
     private bool _dragOver;
-    private System.Timers.Timer? _timer;
 
     protected override void OnInitialized()
     {
-        _timer = new System.Timers.Timer(1000);
-        _timer.Elapsed += (_, __) => InvokeAsync(StateHasChanged);
-        _timer.Start();
+        // Subscribe to OnChange event to refresh when players are added/removed
+        // (NOT to Tick, which would recreate child components and break their subscriptions)
+        Allocation.OnChange += OnStateChanged;
+    }
+
+    private void OnStateChanged()
+    {
+        // Re-render only when the waiting pool list changes (players added/removed)
+        InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
-        if (_timer is not null)
-        {
-            _timer.Stop();
-            _timer.Dispose();
-            _timer = null;
-        }
+        Allocation.OnChange -= OnStateChanged;
     }
 
     private void AddPlayer()

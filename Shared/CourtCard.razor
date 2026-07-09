@@ -6,11 +6,24 @@
         <h3>@Court.Name</h3>
         <span class="court__count">@Court.FilledCount/4</span>
         <div class="court__actions">
-            <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : "Start timer")" @onclick="ToggleTimer">
-                @(Court.IsRunning ? "⏸" : "▶")
-            </button>
-            <span class="court__timer">@Elapsed</span>
-            <button class="icon-btn" title="Clear court" @onclick="ClearCourt">&#8635;</button>
+            @if (Court.FilledCount < 2)
+            {
+                <form class="waiting__add" @onsubmit="PickGame" @onsubmit:preventDefault>
+                    <button type="submit" class="btn btn-primary btn-sm">Pick Game</button>
+                </form>
+            }
+            else
+            {
+                <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : "Start timer")" @onclick="ToggleTimer">
+                    @(Court.IsRunning ? "⏸" : "▶")
+                </button>
+                <span class="court__timer">@Elapsed</span>
+                @if (Court.IsRunning)
+                {
+                  <button class="icon-btn" title="End game" disabled="@(Court.FilledCount < 2)" @onclick="OpenEndGame">✓</button>
+                }
+                <button class="icon-btn" title="Clear court" @onclick="ClearCourt">&#8635;</button>
+            }
         </div>
     </div>
 
@@ -27,14 +40,30 @@
     </div>
 </div>
 
+<EndGameModal @ref="popup" Court="Court"
+              Visible="_showEndGame"
+              OnClose="CloseEndGame"
+              OnConfirm="HandleEndGame"
+              OnWaitforPlayers="HandleWaitforPlayers"/>
+
 @code {
     [Parameter, EditorRequired] public Court Court { get; set; } = null!;
 
     private System.Threading.Timer? _timer;
+    private bool _showEndGame;
+    EndGameModal popup;
 
-    private string Elapsed => Court.StartedAt is null
-        ? "00:00"
-        : (DateTime.UtcNow - Court.StartedAt.Value).ToString(@"mm\:ss");
+    private string Elapsed =>
+        FormatElapsed(Court.GetElapsedTime());
+
+    private static string FormatElapsed(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1)
+            return string.Format("{0:%h}h {0:%m}m", ts);
+        if (ts.TotalMinutes >= 1)
+            return string.Format("{0:%m}m {0:ss}s", ts);
+        return string.Format("{0:ss}s", ts);
+    }
 
     protected override void OnInitialized()
     {
@@ -45,9 +74,32 @@
         }, null, 1000, 1000);
     }
 
+    private void PickGame()
+    {
+        Allocation.PickGame(Court);
+    }
+
     private void ToggleTimer() => Allocation.ToggleTimer(Court);
 
     private void ClearCourt() => Allocation.ClearCourt(Court);
+
+    private void OpenEndGame() { _showEndGame = true; popup.ResetForm(); }
+
+    private void CloseEndGame() => _showEndGame = false;
+
+    private void HandleEndGame(EndGameResult result)
+    {
+        Allocation.EndGame(Court, result.Winner, result.TeamAScore, result.TeamBScore);
+        popup.SetEnded();
+        Allocation.PickGame(Court);
+        //_showEndGame = false;
+    }
+
+    private void HandleWaitforPlayers()
+    {
+        Allocation.ClearCourt(Court);
+        _showEndGame = false;
+    }
 
     public void Dispose() => _timer?.Dispose();
 }
