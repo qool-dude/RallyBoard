@@ -1,10 +1,16 @@
 @page "/"
 @inject CourtAllocationService Allocation
+@inject SessionService Sessions
 @implements IDisposable
 
 <PageTitle>RallyBoard — Badminton Court Allocator</PageTitle>
 
 <section class="toolbar">
+    <div class="toolbar__group">
+        <label class="toolbar__label">Session</label>
+        <span class="session-name session-name--readonly">@_sessionName</span>
+    </div>
+
     <div class="toolbar__group">
         <label class="toolbar__label">Courts</label>
         <div class="stepper">
@@ -15,6 +21,7 @@
     </div>
 
     <div class="toolbar__group toolbar__group--actions">
+        <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
         <button class="btn btn-ghost" @onclick="Allocation.ShuffleAll">Shuffle everyone</button>
         <button class="btn btn-ghost" @onclick="Allocation.ClearAllCourts">Clear all courts</button>
     </div>
@@ -30,11 +37,31 @@
 <WaitingPool />
 
 @code {
-    protected override void OnInitialized() => Allocation.OnChange += Refresh;
+    private string _sessionName = "";
+
+    protected override void OnInitialized()
+    {
+        Allocation.OnChange += Refresh;
+        Sessions.OnChange += RefreshSession;
+        RefreshSession();
+    }
 
     private void Refresh() => InvokeAsync(StateHasChanged);
 
+    private void RefreshSession()
+    {
+        var session = Sessions.GetCurrentSession();
+        _sessionName = string.IsNullOrWhiteSpace(session.Name)
+            ? session.Date.ToString("ddd d MMM yyyy")
+            : session.Name;
+        InvokeAsync(StateHasChanged);
+    }
+
     private void SetCourts(int count) => Allocation.SetCourtCount(count);
 
-    public void Dispose() => Allocation.OnChange -= Refresh;
+    public void Dispose()
+    {
+        Allocation.OnChange -= Refresh;
+        Sessions.OnChange -= RefreshSession;
+    }
 }

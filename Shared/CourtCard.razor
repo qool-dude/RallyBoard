@@ -44,7 +44,8 @@
               Visible="_showEndGame"
               OnClose="CloseEndGame"
               OnConfirm="HandleEndGame"
-              OnWaitforPlayers="HandleWaitforPlayers"/>
+              OnWaitforPlayers="HandleWaitforPlayers"
+              OnAccept="HandleAccept"/>
 
 @code {
     [Parameter, EditorRequired] public Court Court { get; set; } = null!;
@@ -77,27 +78,45 @@
     private void PickGame()
     {
         Allocation.PickGame(Court);
+        OpenNextGame();
+    }
+
+    private void OpenEndGame()
+    {
+        _showEndGame = true;
+        popup.ResetForm();
+    }
+
+    private void OpenNextGame()
+    {
+        popup.ResetForm();
+        popup.SetEnded();
+        _showEndGame = true;
     }
 
     private void ToggleTimer() => Allocation.ToggleTimer(Court);
 
     private void ClearCourt() => Allocation.ClearCourt(Court);
 
-    private void OpenEndGame() { _showEndGame = true; popup.ResetForm(); }
-
     private void CloseEndGame() => _showEndGame = false;
 
     private void HandleEndGame(EndGameResult result)
     {
         Allocation.EndGame(Court, result.Winner, result.TeamAScore, result.TeamBScore);
-        popup.SetEnded();
         Allocation.PickGame(Court);
-        //_showEndGame = false;
+        OpenNextGame();
     }
 
     private void HandleWaitforPlayers()
     {
         Allocation.ClearCourt(Court);
+        _showEndGame = false;
+    }
+
+    private void HandleAccept()
+    {
+        if (Court.FilledCount >= 2 && !Court.IsRunning)
+            Allocation.ToggleTimer(Court);
         _showEndGame = false;
     }
 

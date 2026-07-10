@@ -1,0 +1,380 @@
+@page "/dashboard"
+@inject SessionService Sessions
+@inject CourtAllocationService Allocation
+@implements IDisposable
+
+<PageTitle>RallyBoard — Dashboard</PageTitle>
+
+<section class="dashboard">
+    <div class="dashboard__head">
+        <div>
+            <h1>Session dashboard</h1>
+            <p class="dashboard__subtitle">Rankings, attendance, and game history</p>
+        </div>
+        <div class="dashboard__head-actions">
+            @if (_selectedSessionId == Sessions.CurrentSessionId && !_isAllSessions)
+            {
+                @if (_showEndSession)
+                {
+                    <form class="end-session-form" @onsubmit="ConfirmEndSession" @onsubmit:preventDefault>
+                        <label class="end-session-form__label" for="next-session-name">Next session</label>
+                        <input id="next-session-name" class="end-session-form__input" @bind="_nextSessionName" placeholder="Session name…" />
+                        <button type="submit" class="btn btn-primary btn-sm">Start</button>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="() => _showEndSession = false">Cancel</button>
+                    </form>
+                }
+                else
+                {
+                    <button class="btn btn-ghost" @onclick="ShowEndSession">End session</button>
+                }
+            }
+            <a class="btn btn-primary" href="/">Back to courts</a>
+        </div>
+    </div>
+
+    <div class="dashboard__session-bar">
+        <label class="dashboard__label" for="session-select">Session</label>
+        @if (_editingName && _selectedSessionId is Guid)
+        {
+            <form class="session-name-form" @onsubmit="SaveSessionName" @onsubmit:preventDefault>
+                <input class="session-name-form__input" @bind="_sessionNameEdit" @bind:event="oninput" aria-label="Session name" />
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditName">Cancel</button>
+            </form>
+        }
+        else
+        {
+            <select id="session-select" class="dashboard__select" @bind="_selectedKey" @bind:after="LoadData">
+                <option value="@AllSessionsKey">All sessions</option>
+                @foreach (var session in _sessions)
+                {
+                    <option value="@session.Id.ToString()">
+                        @(string.IsNullOrWhiteSpace(session.Name) ? session.Date.ToString("ddd d MMM yyyy") : session.Name)
+                        @(session.IsActive ? " (active)" : "")
+                        — @session.GameCount games, @session.PlayerCount players
+                    </option>
+                }
+            </select>
+            @if (!_isAllSessions)
+            {
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="StartEditName">Rename</button>
+            }
+        }
+    </div>
+
+    @if (_stats is not null)
+    {
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-card__value">@_stats.TotalGames</span>
+                <span class="stat-card__label">Games played</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-card__value">@_stats.TotalPlayers</span>
+                <span class="stat-card__label">Players attended</span>
+            </div>
+            <div class="stat-card stat-card--paid">
+                <span class="stat-card__value">@_stats.PaidCount</span>
+                <span class="stat-card__label">Paid</span>
+            </div>
+            <div class="stat-card stat-card--unpaid">
+                <span class="stat-card__value">@_stats.UnpaidCount</span>
+                <span class="stat-card__label">Unpaid</span>
+            </div>
+        </div>
+    }
+
+    <div class="dashboard__grid">
+        <section class="dashboard-panel">
+            <div class="dashboard-panel__head">
+                <h2>Rankings</h2>
+                @if (_isAllSessions)
+                {
+                    <span class="dashboard-panel__badge">All sessions</span>
+                }
+                else if (_isCurrentSession)
+                {
+                    <span class="dashboard-panel__badge">Current session</span>
+                }
+            </div>
+
+            @if (_rankings.Count == 0)
+            {
+                <p class="dashboard__empty">No games recorded yet@(_isAllSessions ? "." : " for this session.")</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Player</th>
+                                <th>G</th>
+                                <th>W</th>
+                                <th>L</th>
+                                <th>Win%</th>
+                                <th>Pts +</th>
+                                <th>Pts −</th>
+                                @if (_isCurrentSession)
+                                {
+                                    <th>Paid</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < _rankings.Count; i++)
+                            {
+                                var row = _rankings[i];
+                                var rank = i + 1;
+                                <tr class="@(rank <= 3 ? $"data-table__row--top{rank}" : "")">
+                                    <td class="data-table__rank">@rank</td>
+                                    <td class="data-table__name">@row.Name</td>
+                                    <td>@row.Games</td>
+                                    <td>@row.Wins</td>
+                                    <td>@row.Losses</td>
+                                    <td>@row.WinRate.ToString("0.#")%</td>
+                                    <td>@row.PointsFor</td>
+                                    <td>@row.PointsAgainst</td>
+                                    @if (_isCurrentSession)
+                                    {
+                                        <td>
+                                            <label class="paid-check">
+                                                <input type="checkbox"
+                                                       checked="@row.HasPaid"
+                                                       @onchange="e => TogglePaid(row.PlayerId, (bool)(e.Value ?? false))" />
+                                            </label>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="dashboard-panel">
+            <div class="dashboard-panel__head">
+                <h2>Attendance</h2>
+            </div>
+
+            @if (_isAllSessions)
+            {
+                <p class="dashboard__hint">Players who have attended any session.</p>
+                <div class="attendance-list">
+                    @foreach (var row in _rankings.OrderBy(r => r.Name))
+                    {
+                        <div class="attendance-row attendance-row--present">
+                            <span class="attendance-row__name">@row.Name</span>
+                        </div>
+                    }
+                    @if (_rankings.Count == 0)
+                    {
+                        <p class="dashboard__empty">No attendance recorded.</p>
+                    }
+                </div>
+            }
+            else if (_isCurrentSession)
+            {
+                <p class="dashboard__hint">Tick players who attended tonight. Paid status is in the rankings table.</p>
+                <div class="attendance-list">
+                    @foreach (var player in _allPlayers)
+                    {
+                        var present = _attendeeIds.Contains(player.Id);
+                        <label class="attendance-row @(present ? "attendance-row--present" : "")">
+                            <input type="checkbox"
+                                   checked="@present"
+                                   @onchange="e => ToggleAttendance(player.Id, (bool)(e.Value ?? false))" />
+                            <span class="attendance-row__avatar chip--@(player.ColorIndex % 6)">@player.Initials</span>
+                            <span class="attendance-row__name">@player.Name</span>
+                        </label>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="attendance-list">
+                    @foreach (var row in _rankings.OrderBy(r => r.Name))
+                    {
+                        <div class="attendance-row attendance-row--present">
+                            <span class="attendance-row__name">@row.Name</span>
+                            @if (row.HasPaid)
+                            {
+                                <span class="attendance-row__paid">Paid</span>
+                            }
+                        </div>
+                    }
+                    @if (_rankings.Count == 0)
+                    {
+                        <p class="dashboard__empty">No attendance recorded.</p>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+
+    <section class="dashboard-panel dashboard-panel--full">
+        <div class="dashboard-panel__head">
+            <h2>Recent games</h2>
+        </div>
+
+        @if (_recentGames.Count == 0)
+        {
+            <p class="dashboard__empty">No games yet.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data-table data-table--games">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Court</th>
+                            <th>Winners</th>
+                            <th>Runners-up</th>
+                            <th class="data-table__score">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var game in _recentGames)
+                        {
+                            var (winners, losers, score) = FormatGameResult(game);
+                            <tr>
+                                <td>@game.EndedAt.ToLocalTime().ToString("HH:mm")</td>
+                                <td>Court @game.CourtId</td>
+                                <td class="data-table__winner">@winners</td>
+                                <td>@losers</td>
+                                <td class="data-table__score">@score</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</section>
+
+@code {
+    private const string AllSessionsKey = "all";
+
+    private List<SessionSummaryRow> _sessions = new();
+    private List<PlayerRankingRow> _rankings = new();
+    private List<GameSummaryRow> _recentGames = new();
+    private List<Player> _allPlayers = new();
+    private HashSet<Guid> _attendeeIds = new();
+    private SessionStats? _stats;
+    private string _selectedKey = AllSessionsKey;
+    private Guid? _selectedSessionId;
+    private bool _isCurrentSession;
+    private bool _isAllSessions;
+    private bool _showEndSession;
+    private string _nextSessionName = "";
+    private bool _editingName;
+    private string _sessionNameEdit = "";
+
+    protected override void OnInitialized()
+    {
+        Sessions.OnChange += Refresh;
+        _selectedKey = Sessions.CurrentSessionId.ToString();
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        _sessions = Sessions.GetSessions();
+        _isAllSessions = _selectedKey == AllSessionsKey;
+        _selectedSessionId = _isAllSessions
+            ? null
+            : Guid.TryParse(_selectedKey, out var id) ? id : Sessions.CurrentSessionId;
+
+        if (!_isAllSessions && _selectedSessionId is Guid sid && _sessions.All(s => s.Id != sid) && _sessions.Count > 0)
+        {
+            _selectedSessionId = _sessions[0].Id;
+            _selectedKey = _selectedSessionId.Value.ToString();
+        }
+
+        if (_isAllSessions)
+            _editingName = false;
+
+        _isCurrentSession = !_isAllSessions && _selectedSessionId == Sessions.CurrentSessionId;
+        _rankings = Sessions.GetRankings(_selectedSessionId);
+        _recentGames = Sessions.GetRecentGames(_selectedSessionId, _isAllSessions ? 40 : 20);
+        _stats = Sessions.GetSessionStats(_selectedSessionId);
+        _attendeeIds = _selectedSessionId is Guid sessionId
+            ? Sessions.GetAttendeeIds(sessionId)
+            : new HashSet<Guid>();
+        _allPlayers = Sessions.GetAllPlayers();
+    }
+
+    private void StartEditName()
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        var session = _sessions.FirstOrDefault(s => s.Id == sessionId);
+        _sessionNameEdit = session is null || string.IsNullOrWhiteSpace(session.Name)
+            ? (session?.Date.ToString("ddd d MMM yyyy") ?? "")
+            : session.Name;
+        _editingName = true;
+    }
+
+    private void CancelEditName() => _editingName = false;
+
+    private void SaveSessionName()
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        Sessions.UpdateSessionName(sessionId, _sessionNameEdit);
+        _editingName = false;
+        LoadData();
+    }
+
+    private void TogglePaid(Guid playerId, bool hasPaid)
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        Sessions.SetHasPaid(sessionId, playerId, hasPaid);
+        LoadData();
+    }
+
+    private void ToggleAttendance(Guid playerId, bool present)
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        Sessions.ToggleAttendance(sessionId, playerId, present);
+        if (present && _isCurrentSession)
+            Allocation.CheckInPlayer(playerId);
+        LoadData();
+    }
+
+    private void ShowEndSession()
+    {
+        _nextSessionName = DateOnly.FromDateTime(DateTime.UtcNow).ToString("ddd d MMM yyyy");
+        _showEndSession = true;
+    }
+
+    private void ConfirmEndSession()
+    {
+        Sessions.EndCurrentSession(_nextSessionName);
+        _showEndSession = false;
+        _selectedKey = Sessions.CurrentSessionId.ToString();
+        LoadData();
+    }
+
+    private void Refresh() => InvokeAsync(() =>
+    {
+        LoadData();
+        StateHasChanged();
+    });
+
+    private static (string Winners, string Losers, string Score) FormatGameResult(GameSummaryRow game)
+    {
+        var aScore = game.TeamAScore?.ToString() ?? "—";
+        var bScore = game.TeamBScore?.ToString() ?? "—";
+
+        return game.WinnerSide switch
+        {
+            "TeamA" => (game.TeamANames, game.TeamBNames, $"{aScore} : {bScore}"),
+            "TeamB" => (game.TeamBNames, game.TeamANames, $"{bScore} : {aScore}"),
+            _ => (game.TeamANames, game.TeamBNames, $"{aScore} : {bScore}")
+        };
+    }
+
+    public void Dispose() => Sessions.OnChange -= Refresh;
+}

@@ -36,6 +36,19 @@ public class Court
     }
 
     /// <summary>
+    /// Resets timer and game result state without clearing players.
+    /// </summary>
+    public void ResetTimer()
+    {
+        StartedAt = null;
+        PausedAt = null;
+        AccumulatedTime = TimeSpan.Zero;
+        Winner = null;
+        TeamAScore = 0;
+        TeamBScore = 0;
+    }
+
+    /// <summary>
     /// Resets the court to initial state (clears players, timer, and game state).
     /// </summary>
     public void Reset()

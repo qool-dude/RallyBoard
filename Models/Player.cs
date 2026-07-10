@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace RallyBoard.Models;
 
 public class Player
@@ -13,6 +15,8 @@ public class Player
     public bool IsPaused { get; set; }
     public DateTime? PausedAt { get; set; }
     public TimeSpan PausedAccumulated { get; set; }
+
+    [NotMapped]
     public TimeSpan TotalWaiting { get; set; }
 
     public string Initials =>

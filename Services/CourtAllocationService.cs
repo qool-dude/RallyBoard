@@ -12,6 +12,7 @@ namespace RallyBoard.Services
     public class CourtAllocationService : IDisposable
     {
         private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
+        private readonly SessionService _sessions;
             private Timer? _tickTimer;
             private Player? _draggedPlayer;
             private int _tickCount;
@@ -25,9 +26,13 @@ namespace RallyBoard.Services
         public List<Court> Courts { get; } = new();
         public List<Player> Waiting { get; } = new();
 
-        public CourtAllocationService(IDbContextFactory<RallyBoardDbContext> dbFactory)
+        public CourtAllocationService(
+            IDbContextFactory<RallyBoardDbContext> dbFactory,
+            SessionService sessions)
         {
             _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+            _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+            _sessions.SessionStarted += ClearSessionBoard;
 
             for (int i = 1; i <= 2; i++)
                 Courts.Add(new Court { Id = i, Name = $"Court {i}" });
@@ -36,41 +41,21 @@ namespace RallyBoard.Services
             try
             {
                 using var db = _dbFactory.CreateDbContext();
-                db.Database.EnsureCreated();
+                DatabaseInitializer.EnsureSchema(db);
 
                 var dbPlayers = db.Players.AsNoTracking().ToList();
-                if (dbPlayers.Any())
+                if (!dbPlayers.Any())
                 {
-                    var assignments = db.Assignments.AsNoTracking().ToList();
-                    var playersById = dbPlayers.ToDictionary(p => p.Id);
-
-                    // place assigned players onto courts
-                    foreach (var assign in assignments)
-                    {
-                        var court = Courts.FirstOrDefault(c => c.Id == assign.CourtId);
-                        if (court is not null && assign.SlotIndex >= 0 && assign.SlotIndex < court.Slots.Length)
-                        {
-                            if (playersById.TryGetValue(assign.PlayerId, out var player))
-                                court.Slots[assign.SlotIndex] = player;
-                        }
-                    }
-
-                    // players not assigned go to waiting
-                    var assignedIds = assignments.Select(a => a.PlayerId).ToHashSet();
-                    foreach (var p in dbPlayers)
-                        if (!assignedIds.Contains(p.Id)) Waiting.Add(p);
-                }
-                else
-                {
-                    // seed defaults
                     foreach (var name in new[] { "Ayesha", "Bilal", "Sana", "Usman", "Hina", "Zain" })
-                    {
-                        var p = new Player { Name = name };
-                        MarkPlayerWaiting(p);
-                        Waiting.Add(p);
-                    }
+                        db.Players.Add(new Player { Name = name });
+                    db.SaveChanges();
+                }
 
-                    PersistState();
+                // Clear any stale assignments from a previous run
+                if (db.Assignments.Any())
+                {
+                    db.Assignments.RemoveRange(db.Assignments);
+                    db.SaveChanges();
                 }
             }
             catch (Exception ex)
@@ -125,42 +110,41 @@ namespace RallyBoard.Services
             {
                 using var db = _dbFactory.CreateDbContext();
 
-                // Simplest approach: wipe and repopulate Players and Assignments to match in-memory state
-                // WARNING: this will remove any external changes made directly in the DB.
-
-                var existingAssignments = db.Assignments.ToList();
-                db.Assignments.RemoveRange(existingAssignments);
-
-                var existingPlayers = db.Players.ToList();
-                db.Players.RemoveRange(existingPlayers);
-
-                db.SaveChanges();
-
-                // collect all players from courts and waiting (skip nulls)
                 var playersOnCourts = Courts.SelectMany(c => c.Slots.Where(s => s is not null)).Cast<Player>();
                 var allPlayers = Waiting.Concat(playersOnCourts)
                     .GroupBy(p => p.Id)
                     .Select(g => g.First())
                     .ToList();
 
-                // insert players
+                var existingById = db.Players.ToDictionary(p => p.Id);
                 foreach (var p in allPlayers)
                 {
-                    db.Players.Add(new Player
+                    if (existingById.TryGetValue(p.Id, out var existing))
                     {
-                        Id = p.Id,
-                        Name = p.Name,
-                        ColorIndex = p.ColorIndex,
-                        WaitingSince = p.WaitingSince,
-                        IsPaused = p.IsPaused,
-                        PausedAt = p.PausedAt,
-                        PausedAccumulated = p.PausedAccumulated
-                    });
+                        existing.Name = p.Name;
+                        existing.WaitingSince = p.WaitingSince;
+                        existing.IsPaused = p.IsPaused;
+                        existing.PausedAt = p.PausedAt;
+                        existing.PausedAccumulated = p.PausedAccumulated;
+                    }
+                    else
+                    {
+                        db.Players.Add(new Player
+                        {
+                            Id = p.Id,
+                            Name = p.Name,
+                            ColorIndex = p.ColorIndex,
+                            WaitingSince = p.WaitingSince,
+                            IsPaused = p.IsPaused,
+                            PausedAt = p.PausedAt,
+                            PausedAccumulated = p.PausedAccumulated
+                        });
+                    }
                 }
 
+                db.Assignments.RemoveRange(db.Assignments);
                 db.SaveChanges();
 
-                // insert assignments for players on courts
                 foreach (var court in Courts)
                 {
                     for (int i = 0; i < court.Slots.Length; i++)
@@ -211,33 +195,30 @@ namespace RallyBoard.Services
             // Collect all players (from courts and waiting)
             var allPlayers = Waiting.Concat(Courts.SelectMany(c => c.Slots.Where(s => s is not null))).ToList();
 
-            // Clear all courts
+            // Clear all courts and reset timers
             foreach (var court in Courts)
-            {
-                Array.Clear(court.Slots, 0, court.Slots.Length);
-            }
+                court.Reset();
 
             Waiting.Clear();
 
-            // Shuffle and re-allocate players randomly
+            // Shuffle and fill only complete courts (4 players); rest go to waiting
             var random = new Random();
             allPlayers = allPlayers.OrderBy(_ => random.Next()).ToList();
 
-            // Allocate to courts first, then remaining to waiting
             int playerIndex = 0;
             foreach (var court in Courts)
             {
-                for (int i = 0; i < court.Slots.Length && playerIndex < allPlayers.Count; i++)
-                {
+                if (allPlayers.Count - playerIndex < court.Slots.Length)
+                    break;
+
+                for (int i = 0; i < court.Slots.Length; i++)
                     court.Slots[i] = allPlayers[playerIndex++];
-                }
+
+                StartTimer(court);
             }
 
-            // Remaining players go to waiting
             while (playerIndex < allPlayers.Count)
-            {
                 Waiting.Add(allPlayers[playerIndex++]);
-            }
 
             PersistState();
             OnChange?.Invoke();
@@ -245,6 +226,8 @@ namespace RallyBoard.Services
 
         public void PickGame(Court c)
         {
+            c.ResetTimer();
+
             // Collect all players (from courts and waiting)
             var allPlayers = Waiting.ToList();
 
@@ -457,15 +440,55 @@ namespace RallyBoard.Services
         {
             if (string.IsNullOrWhiteSpace(name)) return;
 
-            // Calculate color based on total existing players (more reliable than a global seed)
-            int totalPlayers = Waiting.Count + Courts.SelectMany(c => c.Slots).Count(s => s is not null);
-            int colorIndex = totalPlayers % 6;
+            using var db = _dbFactory.CreateDbContext();
+            var existing = db.Players.FirstOrDefault(p => p.Name.ToLower() == name.Trim().ToLower());
+            if (existing is not null)
+            {
+                CheckInPlayer(existing.Id);
+                return;
+            }
 
-            var player = new Player { Name = name, ColorIndex = colorIndex };
-            Console.WriteLine($"AddPlayer: Created {player.Name} with ColorIndex={player.ColorIndex} (totalPlayers={totalPlayers})");
+            int colorIndex = db.Players.Count() % 6;
+            var player = new Player { Name = name.Trim(), ColorIndex = colorIndex };
+            db.Players.Add(player);
+            db.SaveChanges();
+
+            CheckInPlayer(player.Id);
+        }
+
+        public void CheckInPlayer(Guid playerId)
+        {
+            if (GetActivePlayerIds().Contains(playerId))
+                return;
+
+            using var db = _dbFactory.CreateDbContext();
+            var player = db.Players.AsNoTracking().FirstOrDefault(p => p.Id == playerId);
+            if (player is null) return;
+            player.WaitingSince = DateTime.UtcNow;
             MarkPlayerWaiting(player);
             Waiting.Add(player);
+            _sessions.RecordAttendance(player.Id);
+            PersistState();
+            OnChange?.Invoke();
+        }
 
+        public List<Player> GetRosterPlayers() => _sessions.GetAllPlayers();
+
+        public HashSet<Guid> GetActivePlayerIds()
+        {
+            var ids = Waiting.Select(p => p.Id).ToHashSet();
+            foreach (var court in Courts)
+                foreach (var slot in court.Slots)
+                    if (slot is not null) ids.Add(slot.Id);
+            return ids;
+        }
+
+        public void ClearSessionBoard()
+        {
+            foreach (var court in Courts)
+                court.Reset();
+
+            Waiting.Clear();
             PersistState();
             OnChange?.Invoke();
         }
@@ -500,6 +523,24 @@ namespace RallyBoard.Services
             if (court.IsRunning)
                 court.PausedAt = DateTime.UtcNow;
 
+            var duration = court.GetElapsedTime();
+            var gamePlayers = court.Slots
+                .Select((player, index) => (Player: player, SlotIndex: index))
+                .Where(x => x.Player is not null)
+                .Select(x => (x.Player!, x.SlotIndex))
+                .ToList();
+
+            if (gamePlayers.Count > 0)
+            {
+                _sessions.RecordGame(
+                    court.Id,
+                    winner,
+                    teamAScore,
+                    teamBScore,
+                    duration,
+                    gamePlayers);
+            }
+
             for (int i = 0; i < court.Slots.Length; i++)
             {
                 var player = court.Slots[i];
@@ -522,38 +563,39 @@ namespace RallyBoard.Services
 
             if (court.IsRunning)
             {
-                // Pause: record the pause time
                 court.PausedAt = DateTime.UtcNow;
             }
             else if (court.IsPaused)
             {
-                // Resume: add the pause duration to accumulated time and clear pause marker
-                var pauseDuration = court.PausedAt.Value - court.StartedAt!.Value;
+                var pauseDuration = court.PausedAt!.Value - court.StartedAt!.Value;
                 court.AccumulatedTime += pauseDuration;
                 court.StartedAt = DateTime.UtcNow;
                 court.PausedAt = null;
             }
             else
             {
-                // Start: initial start
-                court.StartedAt = DateTime.UtcNow;
-                court.PausedAt = null;
-                court.AccumulatedTime = TimeSpan.Zero;
+                StartTimer(court);
             }
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        private void StartTimer(Court court)
+        {
+            court.StartedAt = DateTime.UtcNow;
+            court.PausedAt = null;
+            court.AccumulatedTime = TimeSpan.Zero;
 
             for (int i = 0; i < court.Slots.Length; i++)
             {
                 if (court.Slots[i]?.WaitingSince != null)
                 {
-                    Player p = (Player)court.Slots[i];
+                    var p = court.Slots[i]!;
                     p.TotalWaiting += DateTime.UtcNow - p.WaitingSince.Value;
                     p.WaitingSince = null;
                 }
             }
-
-
-            PersistState();
-            OnChange?.Invoke();
         }
 
         private (string location, object? position) FindPlayerLocation(Player player)
@@ -593,6 +635,7 @@ namespace RallyBoard.Services
 
         public void Dispose()
         {
+            _sessions.SessionStarted -= ClearSessionBoard;
             _tickTimer?.Dispose();
         }
     }

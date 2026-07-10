@@ -40,6 +40,7 @@ if (conn.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
 builder.Services.AddDbContextFactory<RallyBoardDbContext>(options => options.UseNpgsql(conn));
 
 builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
+builder.Services.AddSingleton<SessionService>();
 // Centralized CourtAllocationService used by UI components (use singleton so all components share one timer)
 builder.Services.AddSingleton<CourtAllocationService>();
 

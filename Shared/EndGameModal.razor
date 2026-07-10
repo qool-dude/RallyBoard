@@ -5,52 +5,72 @@
     <div class="modal-backdrop" @onclick="Close">
         <div class="modal-panel" role="dialog" aria-labelledby="end-game-title" @onclick:stopPropagation>
             <div class="modal-panel__head">
-                <h3 id="end-game-title">End game — @Court.Name</h3>
+                <h3 id="end-game-title">@(_gameEnded ? $"Next game — {Court.Name}" : $"End game — {Court.Name}")</h3>
                 <button type="button" class="modal-panel__close" title="Close" @onclick="Close">&times;</button>
             </div>
 
-            <p class="modal-panel__hint">Tap a team to mark the winner. Drag players to adjust the line-up.</p>
-
-            <div class="court__field end-game__field">
-                <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")"
-                     role="button"
-                     tabindex="0"
-                     title="Team A wins"
-                     @onclick='() => SelectWinner("TeamA")'
-                     @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
-                    <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
-                    <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
-                    @if (Winner == "TeamA")
-                    {
-                        <span class="end-game__badge">Winner</span>
-                    }
-                </div>
-
-                <div class="court__net" aria-hidden="true"></div>
-
-                <div class="court__team end-game__team @(Winner == "TeamB" ? "end-game__team--winner" : "")"
-                     role="button"
-                     tabindex="0"
-                     title="Team B wins"
-                     @onclick='() => SelectWinner("TeamB")'
-                     @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
-                    <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
-                    <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
-                    @if (Winner == "TeamB")
-                    {
-                        <span class="end-game__badge">Winner</span>
-                    }
-                </div>
-            </div>
-
-            @if (!_gameEnded)
+            @if (_gameEnded)
             {
+                <p class="modal-panel__hint">Line-up for the next game. Accept to start, or wait for more players.</p>
+
+                <div class="court__field end-game__field">
+                    <div class="court__team">
+                        <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
+                        <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
+                    </div>
+                    <div class="court__net" aria-hidden="true"></div>
+                    <div class="court__team">
+                        <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
+                        <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
+                    </div>
+                </div>
+
+                <div class="modal-panel__actions">
+                    <button type="button" class="btn btn-ghost" @onclick="WaitforPlayers">Wait for More Players</button>
+                    <button type="button" class="btn btn-primary" @onclick="Accept">Accept</button>
+                </div>
+            }
+            else
+            {
+                <p class="modal-panel__hint">Tap a team to mark the winner. Drag players to adjust the line-up.</p>
+
+                <div class="court__field end-game__field">
+                    <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")"
+                         role="button"
+                         tabindex="0"
+                         title="Team A wins"
+                         @onclick='() => SelectWinner("TeamA")'
+                         @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
+                        <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
+                        <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
+                        @if (Winner == "TeamA")
+                        {
+                            <span class="end-game__badge">Winner</span>
+                        }
+                    </div>
+
+                    <div class="court__net" aria-hidden="true"></div>
+
+                    <div class="court__team end-game__team @(Winner == "TeamB" ? "end-game__team--winner" : "")"
+                         role="button"
+                         tabindex="0"
+                         title="Team B wins"
+                         @onclick='() => SelectWinner("TeamB")'
+                         @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
+                        <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
+                        <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
+                        @if (Winner == "TeamB")
+                        {
+                            <span class="end-game__badge">Winner</span>
+                        }
+                    </div>
+                </div>
+
                 <div class="end-game__scores">
                     <div class="end-game__score-col">
                         <span class="end-game__score-label">Team A</span>
                         <div class="stepper end-game__score-stepper">
                             <button type="button" aria-label="Decrease Team A score" @onclick="() => AdjustScore(true, -1)">&minus;</button>
-                            @* <span>@FormatScore(_teamAScore)</span> *@
                             <input @bind="_teamAScore" @bind:event="oninput" placeholder="-" />
                             <button type="button" aria-label="Increase Team A score" @onclick="() => AdjustScore(true, 1)">+</button>
                         </div>
@@ -60,7 +80,6 @@
                         <span class="end-game__score-label">Team B</span>
                         <div class="stepper end-game__score-stepper">
                             <button type="button" aria-label="Decrease Team B score" @onclick="() => AdjustScore(false, -1)">&minus;</button>
-                            @* <span>@FormatScore(_teamBScore)</span> *@
                             <input @bind="_teamBScore" @bind:event="oninput" placeholder="-" />
                             <button type="button" aria-label="Increase Team B score" @onclick="() => AdjustScore(false, 1)">+</button>
                         </div>
@@ -70,13 +89,6 @@
                 <div class="modal-panel__actions">
                     <button type="button" class="btn btn-ghost" @onclick="Close">Cancel</button>
                     <button type="button" class="btn btn-primary" disabled="@(Winner is null)" @onclick="Confirm">End game</button>
-                </div>
-            }
-            else
-            {
-                <div class="modal-panel__actions">
-                    <button type="button" class="btn btn-ghost" @onclick="WaitforPlayers">Wait for More Players</button>
-                    <button type="button" class="btn btn-primary" @onclick="Close">Accept</button>
                 </div>
             }
         </div>
@@ -89,6 +101,7 @@
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback<EndGameResult> OnConfirm { get; set; }
     [Parameter] public EventCallback OnWaitforPlayers { get; set; }
+    [Parameter] public EventCallback OnAccept { get; set; }
 
     private string? Winner { get; set; }
     private int? _teamAScore;
@@ -117,7 +130,11 @@
         _gameEnded = false;
     }
 
-    public void SetEnded() => _gameEnded = true;
+    public void SetEnded()
+    {
+        _gameEnded = true;
+        Winner = null;
+    }
 
     private void SelectWinner(string winner)
     {
@@ -160,6 +177,7 @@
 
     private async Task Close() => await OnClose.InvokeAsync();
     private async Task WaitforPlayers() => await OnWaitforPlayers.InvokeAsync();
+    private async Task Accept() => await OnAccept.InvokeAsync();
 
     private async Task Confirm()
     {
