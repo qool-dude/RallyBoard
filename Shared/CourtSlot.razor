@@ -7,7 +7,7 @@
      @ondrop="HandleDrop" @ondrop:preventDefault>
     @if (Player is not null)
     {
-        <PlayerChip Player="Player" ShowRemove="ShowRemove" />
+        <PlayerChip @key="Player.Id" Player="Player" ShowRemove="ShowRemove" />
     }
     else
     {

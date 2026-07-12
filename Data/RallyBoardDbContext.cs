@@ -13,6 +13,7 @@ public class RallyBoardDbContext : DbContext
     public DbSet<SessionAttendance> SessionAttendances { get; set; } = null!;
     public DbSet<Game> Games { get; set; } = null!;
     public DbSet<GamePlayer> GamePlayers { get; set; } = null!;
+    public DbSet<MatchmakingExplanation> MatchmakingExplanations { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +60,22 @@ public class RallyBoardDbContext : DbContext
             .WithMany()
             .HasForeignKey(gp => gp.PlayerId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<MatchmakingExplanation>().HasKey(m => m.Id);
+        modelBuilder.Entity<MatchmakingExplanation>()
+            .HasOne(m => m.Session)
+            .WithMany()
+            .HasForeignKey(m => m.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<MatchmakingExplanation>()
+            .HasOne(m => m.Game)
+            .WithMany()
+            .HasForeignKey(m => m.GameId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<MatchmakingExplanation>()
+            .HasIndex(m => m.SessionId);
+        modelBuilder.Entity<MatchmakingExplanation>()
+            .HasIndex(m => m.GameId);
 
         base.OnModelCreating(modelBuilder);
     }

@@ -11,23 +11,59 @@
 
             @if (_gameEnded)
             {
-                <p class="modal-panel__hint">Line-up for the next game. Accept to start, or wait for more players.</p>
+                <p class="modal-panel__hint">Preview only — Accept to put this line-up on the court and start, or close to cancel.</p>
 
                 <div class="court__field end-game__field">
                     <div class="court__team">
-                        <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
-                        <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
+                        <div class="slot @(PreviewSlot(0) is null ? "slot--empty" : "")">
+                            @if (PreviewSlot(0) is { } p0)
+                            {
+                                <PlayerChip Player="p0" ShowRemove="false" IsWaiting="false" />
+                            }
+                            else
+                            {
+                                <span class="slot__placeholder">Empty</span>
+                            }
+                        </div>
+                        <div class="slot @(PreviewSlot(1) is null ? "slot--empty" : "")">
+                            @if (PreviewSlot(1) is { } p1)
+                            {
+                                <PlayerChip Player="p1" ShowRemove="false" IsWaiting="false" />
+                            }
+                            else
+                            {
+                                <span class="slot__placeholder">Empty</span>
+                            }
+                        </div>
                     </div>
                     <div class="court__net" aria-hidden="true"></div>
                     <div class="court__team">
-                        <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
-                        <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
+                        <div class="slot @(PreviewSlot(2) is null ? "slot--empty" : "")">
+                            @if (PreviewSlot(2) is { } p2)
+                            {
+                                <PlayerChip Player="p2" ShowRemove="false" IsWaiting="false" />
+                            }
+                            else
+                            {
+                                <span class="slot__placeholder">Empty</span>
+                            }
+                        </div>
+                        <div class="slot @(PreviewSlot(3) is null ? "slot--empty" : "")">
+                            @if (PreviewSlot(3) is { } p3)
+                            {
+                                <PlayerChip Player="p3" ShowRemove="false" IsWaiting="false" />
+                            }
+                            else
+                            {
+                                <span class="slot__placeholder">Empty</span>
+                            }
+                        </div>
                     </div>
                 </div>
 
                 <div class="modal-panel__actions">
                     <button type="button" class="btn btn-ghost" @onclick="WaitforPlayers">Wait for More Players</button>
-                    <button type="button" class="btn btn-primary" @onclick="Accept">Accept</button>
+                    <button type="button" class="btn btn-primary" disabled="@(PreviewSlots is null)" @onclick="Accept">Accept</button>
                 </div>
             }
             else
@@ -98,6 +134,7 @@
 @code {
     [Parameter, EditorRequired] public Court Court { get; set; } = null!;
     [Parameter] public bool Visible { get; set; }
+    [Parameter] public Player?[]? PreviewSlots { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback<EndGameResult> OnConfirm { get; set; }
     [Parameter] public EventCallback OnWaitforPlayers { get; set; }
@@ -109,17 +146,10 @@
     private bool _scoresTouched;
     private bool _gameEnded;
 
-    protected override void OnInitialized()
-    {
-        //if (Visible)
-        //    ResetForm();
-    }
-
-    protected override void OnParametersSet()
-    {
-        //if (Visible)
-        //    ResetForm();
-    }
+    private Player? PreviewSlot(int index) =>
+        PreviewSlots is not null && index >= 0 && index < PreviewSlots.Length
+            ? PreviewSlots[index]
+            : null;
 
     public void ResetForm()
     {
@@ -152,7 +182,6 @@
                     _teamAScore = 10;
                     _teamBScore = 21;
                     break;
-
             }
         }
     }
@@ -172,8 +201,6 @@
         else
             _teamBScore = Math.Max(0, (_teamBScore ?? 0) + delta);
     }
-
-    private static string FormatScore(int? score) => score?.ToString() ?? "—";
 
     private async Task Close() => await OnClose.InvokeAsync();
     private async Task WaitforPlayers() => await OnWaitforPlayers.InvokeAsync();

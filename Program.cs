@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Microsoft.EntityFrameworkCore;
 using RallyBoard.Data;
+using RallyBoard.Models;
 using RallyBoard.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +40,8 @@ if (conn.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
 builder.Services.AddDbContextFactory<RallyBoardDbContext>(options => options.UseNpgsql(conn));
 
 builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
+builder.Services.Configure<MatchmakingOptions>(builder.Configuration.GetSection(MatchmakingOptions.SectionName));
+builder.Services.AddSingleton<MatchmakingService>();
 builder.Services.AddSingleton<SessionService>();
 // Centralized CourtAllocationService used by UI components (use singleton so all components share one timer)
 builder.Services.AddSingleton<CourtAllocationService>();

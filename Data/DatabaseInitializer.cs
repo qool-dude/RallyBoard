@@ -48,6 +48,45 @@ public static class DatabaseInitializer
             );
 
             ALTER TABLE "Sessions" ADD COLUMN IF NOT EXISTS "Name" text NOT NULL DEFAULT '';
+
+            -- Existing rows become Test; new inserts default to Live unless set explicitly.
+            ALTER TABLE "Sessions" ADD COLUMN IF NOT EXISTS "IsTest" boolean NOT NULL DEFAULT true;
+            ALTER TABLE "Sessions" ALTER COLUMN "IsTest" SET DEFAULT false;
+            ALTER TABLE "Players" ADD COLUMN IF NOT EXISTS "IsTest" boolean NOT NULL DEFAULT true;
+            ALTER TABLE "Players" ALTER COLUMN "IsTest" SET DEFAULT false;
+
+            CREATE TABLE IF NOT EXISTS "MatchmakingExplanations" (
+                "Id" uuid NOT NULL PRIMARY KEY,
+                "SessionId" uuid NOT NULL REFERENCES "Sessions"("Id") ON DELETE CASCADE,
+                "GameId" uuid NULL REFERENCES "Games"("Id") ON DELETE SET NULL,
+                "CourtId" integer NOT NULL,
+                "PickedAt" timestamp with time zone NOT NULL,
+                "WaitingPoolSize" integer NOT NULL,
+                "CandidatesConsidered" integer NOT NULL,
+                "RankAmongCandidates" integer NOT NULL,
+                "UsedRandomness" boolean NOT NULL DEFAULT false,
+                "TotalScore" double precision NOT NULL,
+                "WaitingScore" double precision NOT NULL,
+                "MixingScore" double precision NOT NULL,
+                "BalanceScore" double precision NOT NULL,
+                "PeerScore" double precision NOT NULL,
+                "HomogeneityScore" double precision NOT NULL DEFAULT 0,
+                "WaitingWeight" double precision NOT NULL,
+                "MixingWeight" double precision NOT NULL,
+                "BalanceWeight" double precision NOT NULL,
+                "PeerWeight" double precision NOT NULL,
+                "HomogeneityWeight" double precision NOT NULL DEFAULT 0,
+                "Algorithm" text NOT NULL DEFAULT '',
+                "DominantFactor" text NOT NULL DEFAULT '',
+                "Summary" text NOT NULL DEFAULT '',
+                "DetailsJson" text NOT NULL DEFAULT '{{}}'
+            );
+            CREATE INDEX IF NOT EXISTS "IX_MatchmakingExplanations_SessionId" ON "MatchmakingExplanations" ("SessionId");
+            CREATE INDEX IF NOT EXISTS "IX_MatchmakingExplanations_GameId" ON "MatchmakingExplanations" ("GameId");
+
+            ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityScore" double precision NOT NULL DEFAULT 0;
+            ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityWeight" double precision NOT NULL DEFAULT 0;
+            ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "Algorithm" text NOT NULL DEFAULT '';
             """);
     }
 }

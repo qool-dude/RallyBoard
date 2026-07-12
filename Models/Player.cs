@@ -10,6 +10,9 @@ public class Player
     public string Name { get; set; } = "";
     public int ColorIndex { get; init; } = _seed++;
 
+    /// <summary>Test-mode roster entry; excluded from Live ratings and sessions.</summary>
+    public bool IsTest { get; set; }
+
     // Waiting pool metadata
     public DateTime? WaitingSince { get; set; }
     public bool IsPaused { get; set; }

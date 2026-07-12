@@ -1,14 +1,18 @@
 @inject CourtAllocationService Allocation
 @implements IDisposable
 
-<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "")"
-     draggable="true"
+<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "")"
+     draggable="@(_menuOpen ? "false" : "true")"
      @ondragstart="() => Allocation.StartDrag(Player)"
      @ondragstart:stopPropagation
      @ondragover="@(() => { })" @ondragover:preventDefault
      @ondragenter="() => _dragOver = true"
      @ondragleave="() => _dragOver = false"
      @ondrop="HandleDrop" @ondrop:preventDefault @ondrop:stopPropagation>
+    @if (_menuOpen)
+    {
+        <div class="chip-menu-backdrop" @onclick="CloseMenu" @onmousedown:preventDefault></div>
+    }
     <span class="chip__avatar">@Player.Initials</span>
     <span class="chip__name">@Player.Name</span>
     @if (IsWaiting)
@@ -46,6 +50,18 @@
 
     private bool _menuOpen;
     private bool _dragOver;
+    private Guid _boundPlayerId;
+
+    protected override void OnParametersSet()
+    {
+        // Component reused for a different player — never keep another chip's menu open
+        if (_boundPlayerId != Player.Id)
+        {
+            _boundPlayerId = Player.Id;
+            _menuOpen = false;
+            _dragOver = false;
+        }
+    }
 
     private void HandleDrop()
     {
@@ -55,13 +71,26 @@
 
     private void ToggleMenu()
     {
-        _menuOpen = !_menuOpen;
+        if (_menuOpen)
+        {
+            CloseMenu();
+            return;
+        }
+
+        Allocation.NotifyChipMenuOpening(Player.Id);
+        _menuOpen = true;
+    }
+
+    private void CloseMenu()
+    {
+        if (!_menuOpen) return;
+        _menuOpen = false;
     }
 
     private void Remove()
     {
+        CloseMenu();
         Allocation.DeletePlayer(Player);
-        _menuOpen = false;
     }
 
     private void TogglePause()
@@ -82,6 +111,16 @@
     {
         get
         {
+            // Waiting pool: swap only with someone already on court
+            if (IsWaiting)
+            {
+                return Allocation.Courts
+                    .SelectMany(c => c.Slots)
+                    .Where(p => p is not null && p.Id != Player.Id)
+                    .Cast<Player>()
+                    .DistinctBy(p => p.Id);
+            }
+
             var list = new List<Player>();
             list.AddRange(Allocation.Waiting);
             foreach (var court in Allocation.Courts)
@@ -93,28 +132,42 @@
 
     private void SwapWith(Player other)
     {
+        CloseMenu();
         Allocation.SwapPlayers(Player, other);
-        _menuOpen = false;
     }
+
     protected override void OnInitialized()
     {
-        Console.WriteLine($"PlayerChip.OnInitialized: Player={Player?.Name}, ServiceHash={Allocation?.GetHashCode()}");
-        if (Allocation is not null)
-            Allocation.Tick += OnTick;
-        base.OnInitialized();
+        _boundPlayerId = Player.Id;
+        Allocation.Tick += OnTick;
+        Allocation.OnChange += OnBoardChanged;
+        Allocation.ChipMenuOpening += OnOtherMenuOpening;
+    }
+
+    private void OnOtherMenuOpening(Guid playerId)
+    {
+        if (playerId == Player.Id || !_menuOpen) return;
+        _menuOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnBoardChanged()
+    {
+        if (!_menuOpen) return;
+        _menuOpen = false;
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnTick()
     {
-        Console.WriteLine($"PlayerChip.OnTick: Player={Player?.Name}");
-        // ensure UI update happens on the renderer thread
-        InvokeAsync(StateHasChanged);
+        if (IsWaiting)
+            InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
-        Console.WriteLine($"PlayerChip.Dispose: Player={Player?.Name}");
-        if (Allocation is not null)
-            Allocation.Tick -= OnTick;
+        Allocation.Tick -= OnTick;
+        Allocation.OnChange -= OnBoardChanged;
+        Allocation.ChipMenuOpening -= OnOtherMenuOpening;
     }
 }

@@ -23,6 +23,9 @@ public class Court
     public bool IsPaused => StartedAt is not null && PausedAt is not null;
     public bool GameEnded => Winner is not null;
 
+    /// <summary>Matchmaking explanation for the current lineup (cleared on Reset).</summary>
+    public MatchmakingDecision? PendingMatchmaking { get; set; }
+
     /// <summary>
     /// Gets the elapsed time on the court timer.
     /// </summary>
@@ -60,5 +63,6 @@ public class Court
         Winner = null;
         TeamAScore = 0;
         TeamBScore = 0;
+        PendingMatchmaking = null;
     }
 }

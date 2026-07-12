@@ -13,6 +13,7 @@ namespace RallyBoard.Services
     {
         private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
         private readonly SessionService _sessions;
+        private readonly MatchmakingService _matchmaking;
             private Timer? _tickTimer;
             private Player? _draggedPlayer;
             private int _tickCount;
@@ -23,16 +24,23 @@ namespace RallyBoard.Services
         // raised when state changes (players moved, courts modified, etc.)
         public event Action? OnChange;
 
+        /// <summary>Fired when a chip menu opens so other chips can close theirs.</summary>
+        public event Action<Guid>? ChipMenuOpening;
+
         public List<Court> Courts { get; } = new();
         public List<Player> Waiting { get; } = new();
 
+        public void NotifyChipMenuOpening(Guid playerId) => ChipMenuOpening?.Invoke(playerId);
         public CourtAllocationService(
             IDbContextFactory<RallyBoardDbContext> dbFactory,
-            SessionService sessions)
+            SessionService sessions,
+            MatchmakingService matchmaking)
         {
             _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
             _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+            _matchmaking = matchmaking ?? throw new ArgumentNullException(nameof(matchmaking));
             _sessions.SessionStarted += ClearSessionBoard;
+            _sessions.ModeChanged += OnModeChanged;
 
             for (int i = 1; i <= 2; i++)
                 Courts.Add(new Court { Id = i, Name = $"Court {i}" });
@@ -47,7 +55,7 @@ namespace RallyBoard.Services
                 if (!dbPlayers.Any())
                 {
                     foreach (var name in new[] { "Ayesha", "Bilal", "Sana", "Usman", "Hina", "Zain" })
-                        db.Players.Add(new Player { Name = name });
+                        db.Players.Add(new Player { Name = name, IsTest = true });
                     db.SaveChanges();
                 }
 
@@ -61,6 +69,17 @@ namespace RallyBoard.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"CourtAllocationService DB init error: {ex}");
+            }
+
+            // Re-check-in anyone already marked present for the active session
+            try
+            {
+                foreach (var playerId in _sessions.GetAttendeeIds(_sessions.CurrentSessionId))
+                    CheckInPlayer(playerId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CourtAllocationService attendance restore error: {ex}");
             }
 
             // start centralized tick timer for UI updates (every 1s)
@@ -134,6 +153,7 @@ namespace RallyBoard.Services
                             Id = p.Id,
                             Name = p.Name,
                             ColorIndex = p.ColorIndex,
+                            IsTest = p.IsTest,
                             WaitingSince = p.WaitingSince,
                             IsPaused = p.IsPaused,
                             PausedAt = p.PausedAt,
@@ -192,33 +212,73 @@ namespace RallyBoard.Services
 
         public void ShuffleAll()
         {
-            // Collect all players (from courts and waiting)
-            var allPlayers = Waiting.Concat(Courts.SelectMany(c => c.Slots.Where(s => s is not null))).ToList();
+            var allPlayers = Waiting
+                .Concat(Courts.SelectMany(c => c.Slots.Where(s => s is not null)).Cast<Player>())
+                .GroupBy(p => p.Id)
+                .Select(g => g.First())
+                .ToList();
 
-            // Clear all courts and reset timers
             foreach (var court in Courts)
                 court.Reset();
 
             Waiting.Clear();
+            foreach (var player in allPlayers)
+            {
+                // Court players had WaitingSince cleared when their game started
+                MarkPlayerWaiting(player);
+                Waiting.Add(player);
+            }
 
-            // Shuffle and fill only complete courts (4 players); rest go to waiting
-            var random = new Random();
-            allPlayers = allPlayers.OrderBy(_ => random.Next()).ToList();
-
-            int playerIndex = 0;
             foreach (var court in Courts)
             {
-                if (allPlayers.Count - playerIndex < court.Slots.Length)
+                var pick = _matchmaking.PickLineup(Waiting, _sessions.CurrentSessionId, _sessions.IsTestMode);
+                if (pick is null)
                     break;
 
                 for (int i = 0; i < court.Slots.Length; i++)
-                    court.Slots[i] = allPlayers[playerIndex++];
+                {
+                    court.Slots[i] = pick.Slots[i];
+                    Waiting.Remove(pick.Slots[i]);
+                }
 
-                StartTimer(court);
+                court.PendingMatchmaking = pick.Decision;
             }
 
-            while (playerIndex < allPlayers.Count)
-                Waiting.Add(allPlayers[playerIndex++]);
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        /// <summary>
+        /// Proposes a lineup without mutating the court or waiting pool.
+        /// </summary>
+        public MatchmakingPickResult? ProposePickGame()
+        {
+            if (Waiting.Count < 4)
+                return null;
+
+            return _matchmaking.PickLineup(Waiting, _sessions.CurrentSessionId, _sessions.IsTestMode);
+        }
+
+        /// <summary>
+        /// Applies a previously proposed lineup to the court and removes players from waiting.
+        /// </summary>
+        public void ApplyPickGame(Court c, MatchmakingPickResult pick, bool startTimer = true)
+        {
+            if (c is null || pick?.Slots is null || pick.Slots.Length < 4)
+                return;
+
+            c.ResetTimer();
+            c.PendingMatchmaking = pick.Decision;
+
+            for (int i = 0; i < c.Slots.Length; i++)
+            {
+                var player = pick.Slots[i];
+                RemovePlayerFromAllLocations(player);
+                c.Slots[i] = player;
+            }
+
+            if (startTimer)
+                StartTimer(c);
 
             PersistState();
             OnChange?.Invoke();
@@ -226,30 +286,11 @@ namespace RallyBoard.Services
 
         public void PickGame(Court c)
         {
-            c.ResetTimer();
+            var pick = ProposePickGame();
+            if (pick is null)
+                return;
 
-            // Collect all players (from courts and waiting)
-            var allPlayers = Waiting.ToList();
-
-            // Shuffle and re-allocate players randomly
-            var random = new Random();
-            allPlayers = allPlayers.OrderBy(_ => random.Next()).ToList();
-
-            // Allocate to court and remove from waiting
-            for (int i = 0; i < c.Slots.Length; i++)
-            {
-                c.Slots[i] = allPlayers[i];
-                Waiting.Remove(allPlayers[i]);
-            }
-
-            // Remaining players go to waiting
-            //while (playerIndex < allPlayers.Count)
-            //{
-            //    Waiting.Add(allPlayers[playerIndex++]);
-            //}
-
-            PersistState();
-            OnChange?.Invoke();
+            ApplyPickGame(c, pick, startTimer: false);
         }
 
         public void SetCourtCount(int count)
@@ -441,15 +482,18 @@ namespace RallyBoard.Services
             if (string.IsNullOrWhiteSpace(name)) return;
 
             using var db = _dbFactory.CreateDbContext();
-            var existing = db.Players.FirstOrDefault(p => p.Name.ToLower() == name.Trim().ToLower());
+            var trimmed = name.Trim();
+            var isTest = _sessions.IsTestMode;
+            var existing = db.Players.FirstOrDefault(p =>
+                p.IsTest == isTest && p.Name.ToLower() == trimmed.ToLower());
             if (existing is not null)
             {
                 CheckInPlayer(existing.Id);
                 return;
             }
 
-            int colorIndex = db.Players.Count() % 6;
-            var player = new Player { Name = name.Trim(), ColorIndex = colorIndex };
+            int colorIndex = db.Players.Count(p => p.IsTest == isTest) % 6;
+            var player = new Player { Name = trimmed, ColorIndex = colorIndex, IsTest = isTest };
             db.Players.Add(player);
             db.SaveChanges();
 
@@ -538,7 +582,8 @@ namespace RallyBoard.Services
                     teamAScore,
                     teamBScore,
                     duration,
-                    gamePlayers);
+                    gamePlayers,
+                    court.PendingMatchmaking);
             }
 
             for (int i = 0; i < court.Slots.Length; i++)
@@ -576,6 +621,38 @@ namespace RallyBoard.Services
             {
                 StartTimer(court);
             }
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        /// <summary>
+        /// Starts (or resumes) the timer on every court that has at least 2 players.
+        /// Already-running courts are left alone.
+        /// </summary>
+        public void StartAllTimers()
+        {
+            var changed = false;
+            foreach (var court in Courts)
+            {
+                if (court.FilledCount < 2 || court.IsRunning)
+                    continue;
+
+                if (court.IsPaused)
+                {
+                    var pauseDuration = court.PausedAt!.Value - court.StartedAt!.Value;
+                    court.AccumulatedTime += pauseDuration;
+                    court.StartedAt = DateTime.UtcNow;
+                    court.PausedAt = null;
+                }
+                else
+                {
+                    StartTimer(court);
+                }
+                changed = true;
+            }
+
+            if (!changed) return;
 
             PersistState();
             OnChange?.Invoke();
@@ -633,9 +710,24 @@ namespace RallyBoard.Services
             }
         }
 
+        private void OnModeChanged()
+        {
+            ClearSessionBoard();
+            try
+            {
+                foreach (var playerId in _sessions.GetAttendeeIds(_sessions.CurrentSessionId))
+                    CheckInPlayer(playerId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CourtAllocationService mode switch restore error: {ex}");
+            }
+        }
+
         public void Dispose()
         {
             _sessions.SessionStarted -= ClearSessionBoard;
+            _sessions.ModeChanged -= OnModeChanged;
             _tickTimer?.Dispose();
         }
     }

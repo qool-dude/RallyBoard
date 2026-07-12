@@ -8,7 +8,7 @@
 <section class="dashboard">
     <div class="dashboard__head">
         <div>
-            <h1>Session dashboard</h1>
+            <h1>Session dashboard @(Sessions.IsTestMode ? "(Test)" : "(Live)")</h1>
             <p class="dashboard__subtitle">Rankings, attendance, and game history</p>
         </div>
         <div class="dashboard__head-actions">
@@ -28,6 +28,7 @@
                     <button class="btn btn-ghost" @onclick="ShowEndSession">End session</button>
                 }
             }
+            <a class="btn btn-ghost" href="/dashboard/picks">Picks</a>
             <a class="btn btn-primary" href="/">Back to courts</a>
         </div>
     </div>
@@ -110,10 +111,12 @@
                             <tr>
                                 <th>#</th>
                                 <th>Player</th>
+                                <th>Rating</th>
                                 <th>G</th>
                                 <th>W</th>
                                 <th>L</th>
                                 <th>Win%</th>
+                                <th>Close</th>
                                 <th>Pts +</th>
                                 <th>Pts −</th>
                                 @if (_isCurrentSession)
@@ -130,10 +133,12 @@
                                 <tr class="@(rank <= 3 ? $"data-table__row--top{rank}" : "")">
                                     <td class="data-table__rank">@rank</td>
                                     <td class="data-table__name">@row.Name</td>
+                                    <td class="data-table__rating">@row.Rating.ToString("0.#")</td>
                                     <td>@row.Games</td>
                                     <td>@row.Wins</td>
                                     <td>@row.Losses</td>
                                     <td>@row.WinRate.ToString("0.#")%</td>
+                                    <td>@row.Closeness.ToString("0.#")</td>
                                     <td>@row.PointsFor</td>
                                     <td>@row.PointsAgainst</td>
                                     @if (_isCurrentSession)
@@ -157,6 +162,13 @@
         <section class="dashboard-panel">
             <div class="dashboard-panel__head">
                 <h2>Attendance</h2>
+                @if (_isCurrentSession)
+                {
+                    <div class="dashboard-panel__actions">
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="SelectAllAttendance">Select all</button>
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="ClearAllAttendance">Clear all</button>
+                    </div>
+                }
             </div>
 
             @if (_isAllSessions)
@@ -276,9 +288,19 @@
     protected override void OnInitialized()
     {
         Sessions.OnChange += Refresh;
+        Sessions.ModeChanged += OnModeChanged;
         _selectedKey = Sessions.CurrentSessionId.ToString();
         LoadData();
     }
+
+    private void OnModeChanged() => InvokeAsync(() =>
+    {
+        _selectedKey = Sessions.CurrentSessionId.ToString();
+        _showEndSession = false;
+        _editingName = false;
+        LoadData();
+        StateHasChanged();
+    });
 
     private void LoadData()
     {
@@ -343,6 +365,26 @@
         LoadData();
     }
 
+    private void SelectAllAttendance()
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        foreach (var player in _allPlayers)
+        {
+            if (_attendeeIds.Contains(player.Id)) continue;
+            Sessions.ToggleAttendance(sessionId, player.Id, true);
+            Allocation.CheckInPlayer(player.Id);
+        }
+        LoadData();
+    }
+
+    private void ClearAllAttendance()
+    {
+        if (_selectedSessionId is not Guid sessionId) return;
+        foreach (var playerId in _attendeeIds.ToList())
+            Sessions.ToggleAttendance(sessionId, playerId, false);
+        LoadData();
+    }
+
     private void ShowEndSession()
     {
         _nextSessionName = DateOnly.FromDateTime(DateTime.UtcNow).ToString("ddd d MMM yyyy");
@@ -376,5 +418,9 @@
         };
     }
 
-    public void Dispose() => Sessions.OnChange -= Refresh;
+    public void Dispose()
+    {
+        Sessions.OnChange -= Refresh;
+        Sessions.ModeChanged -= OnModeChanged;
+    }
 }

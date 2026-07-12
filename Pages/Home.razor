@@ -9,6 +9,10 @@
     <div class="toolbar__group">
         <label class="toolbar__label">Session</label>
         <span class="session-name session-name--readonly">@_sessionName</span>
+        @if (Sessions.IsTestMode)
+        {
+            <span class="mode-pill">Test</span>
+        }
     </div>
 
     <div class="toolbar__group">
@@ -21,9 +25,9 @@
     </div>
 
     <div class="toolbar__group toolbar__group--actions">
-        <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
-        <button class="btn btn-ghost" @onclick="Allocation.ShuffleAll">Shuffle everyone</button>
-        <button class="btn btn-ghost" @onclick="Allocation.ClearAllCourts">Clear all courts</button>
+        <button class="btn btn-ghost" @onclick="ShuffleClick">Shuffle everyone</button>
+        <button class="btn btn-ghost" @onclick="Allocation.StartAllTimers">Start all games</button>
+        <button class="btn btn-ghost" @onclick="() => AskConfirm(ConfirmAction.Clear)">Clear all courts</button>
     </div>
 </section>
 
@@ -36,15 +40,87 @@
 
 <WaitingPool />
 
+@if (_pending is ConfirmAction action)
+{
+    <div class="modal-backdrop" @onclick="CancelConfirm">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+            <div class="modal-panel__head">
+                <h3 id="confirm-title">@ConfirmTitle(action)</h3>
+                <button type="button" class="modal-panel__close" @onclick="CancelConfirm" aria-label="Cancel">&times;</button>
+            </div>
+            <p class="modal-panel__hint">@ConfirmMessage(action)</p>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-ghost" @onclick="CancelConfirm">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="RunConfirm">@ConfirmButton(action)</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    private enum ConfirmAction { Shuffle, Clear }
+
     private string _sessionName = "";
+    private ConfirmAction? _pending;
 
     protected override void OnInitialized()
     {
         Allocation.OnChange += Refresh;
         Sessions.OnChange += RefreshSession;
+        Sessions.ModeChanged += RefreshSession;
         RefreshSession();
     }
+
+    private void AskConfirm(ConfirmAction action) => _pending = action;
+
+    private void ShuffleClick()
+    {
+        // Nothing on court to disrupt — shuffle immediately
+        if (Allocation.Courts.All(c => c.FilledCount == 0))
+        {
+            Allocation.ShuffleAll();
+            return;
+        }
+
+        AskConfirm(ConfirmAction.Shuffle);
+    }
+
+    private void CancelConfirm() => _pending = null;
+
+    private void RunConfirm()
+    {
+        switch (_pending)
+        {
+            case ConfirmAction.Shuffle:
+                Allocation.ShuffleAll();
+                break;
+            case ConfirmAction.Clear:
+                Allocation.ClearAllCourts();
+                break;
+        }
+        _pending = null;
+    }
+
+    private static string ConfirmTitle(ConfirmAction action) => action switch
+    {
+        ConfirmAction.Shuffle => "Shuffle everyone?",
+        ConfirmAction.Clear => "Clear all courts?",
+        _ => "Confirm"
+    };
+
+    private static string ConfirmMessage(ConfirmAction action) => action switch
+    {
+        ConfirmAction.Shuffle => "This pulls everyone off the courts and rematches them. Timers will not start — hit play on each court when ready.",
+        ConfirmAction.Clear => "Everyone on court will be sent back to the waiting pool. Timers will stop.",
+        _ => ""
+    };
+
+    private static string ConfirmButton(ConfirmAction action) => action switch
+    {
+        ConfirmAction.Shuffle => "Shuffle",
+        ConfirmAction.Clear => "Clear courts",
+        _ => "Confirm"
+    };
 
     private void Refresh() => InvokeAsync(StateHasChanged);
 
@@ -63,5 +139,6 @@
     {
         Allocation.OnChange -= Refresh;
         Sessions.OnChange -= RefreshSession;
+        Sessions.ModeChanged -= RefreshSession;
     }
 }

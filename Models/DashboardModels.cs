@@ -7,6 +7,8 @@ public record PlayerRankingRow(
     int Wins,
     int Losses,
     double WinRate,
+    double Closeness,
+    double Rating,
     int PointsFor,
     int PointsAgainst,
     bool HasPaid);
@@ -27,10 +29,23 @@ public record SessionSummaryRow(
     string Name,
     int GameCount,
     int PlayerCount,
-    bool IsActive);
+    bool IsActive,
+    bool IsTest);
 
 public record SessionStats(
     int TotalGames,
     int TotalPlayers,
     int PaidCount,
     int UnpaidCount);
+
+public record PlayerMatchStats(
+    Guid PlayerId,
+    string Name,
+    int Games,
+    int Wins,
+    int Losses,
+    double WinRate,
+    double Closeness,
+    double Rating,
+    int PointsFor,
+    int PointsAgainst);

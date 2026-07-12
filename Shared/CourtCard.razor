@@ -42,7 +42,8 @@
 
 <EndGameModal @ref="popup" Court="Court"
               Visible="_showEndGame"
-              OnClose="CloseEndGame"
+              PreviewSlots="_pendingPick?.Slots"
+              OnClose="CloseModal"
               OnConfirm="HandleEndGame"
               OnWaitforPlayers="HandleWaitforPlayers"
               OnAccept="HandleAccept"/>
@@ -52,7 +53,8 @@
 
     private System.Threading.Timer? _timer;
     private bool _showEndGame;
-    EndGameModal popup;
+    private MatchmakingPickResult? _pendingPick;
+    EndGameModal popup = null!;
 
     private string Elapsed =>
         FormatElapsed(Court.GetElapsedTime());
@@ -77,12 +79,17 @@
 
     private void PickGame()
     {
-        Allocation.PickGame(Court);
+        var pick = Allocation.ProposePickGame();
+        if (pick is null)
+            return;
+
+        _pendingPick = pick;
         OpenNextGame();
     }
 
     private void OpenEndGame()
     {
+        _pendingPick = null;
         _showEndGame = true;
         popup.ResetForm();
     }
@@ -98,25 +105,37 @@
 
     private void ClearCourt() => Allocation.ClearCourt(Court);
 
-    private void CloseEndGame() => _showEndGame = false;
+    private void CloseModal()
+    {
+        // Cancel: discard draft, leave court/waiting unchanged
+        _pendingPick = null;
+        _showEndGame = false;
+    }
 
     private void HandleEndGame(EndGameResult result)
     {
         Allocation.EndGame(Court, result.Winner, result.TeamAScore, result.TeamBScore);
-        Allocation.PickGame(Court);
+        _pendingPick = Allocation.ProposePickGame();
         OpenNextGame();
     }
 
     private void HandleWaitforPlayers()
     {
-        Allocation.ClearCourt(Court);
+        // Discard draft; court already cleared if coming from EndGame
+        _pendingPick = null;
+        if (Court.FilledCount > 0)
+            Allocation.ClearCourt(Court);
         _showEndGame = false;
     }
 
     private void HandleAccept()
     {
-        if (Court.FilledCount >= 2 && !Court.IsRunning)
+        if (_pendingPick is not null)
+            Allocation.ApplyPickGame(Court, _pendingPick, startTimer: true);
+        else if (Court.FilledCount >= 2 && !Court.IsRunning)
             Allocation.ToggleTimer(Court);
+
+        _pendingPick = null;
         _showEndGame = false;
     }
 

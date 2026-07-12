@@ -54,7 +54,7 @@
         <div class="waiting__chips">
             @foreach (var player in Allocation.Waiting.OrderByDescending(r => r.GetWaitingElapsed()))
             {
-                <PlayerChip Player="player" IsWaiting="true" />
+                <PlayerChip @key="player.Id" Player="player" IsWaiting="true" />
             }
         </div>
     }

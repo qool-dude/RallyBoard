@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RallyBoard.Data;
 using RallyBoard.Models;
 
@@ -7,19 +8,42 @@ namespace RallyBoard.Services;
 public class SessionService
 {
     private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
+    private readonly MatchmakingOptions _matchmaking;
+    private readonly MatchmakingService _matchmakingService;
     private Guid? _currentSessionId;
 
     public event Action? OnChange;
     public event Action? SessionStarted;
+    public event Action? ModeChanged;
 
-    public SessionService(IDbContextFactory<RallyBoardDbContext> dbFactory)
+    /// <summary>
+    /// When true, courts/dashboard use test sessions &amp; players only.
+    /// Defaults to Test because existing data is marked IsTest.
+    /// </summary>
+    public bool IsTestMode { get; private set; } = true;
+
+    public SessionService(
+        IDbContextFactory<RallyBoardDbContext> dbFactory,
+        IOptions<MatchmakingOptions> matchmaking,
+        MatchmakingService matchmakingService)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _matchmaking = matchmaking?.Value ?? new MatchmakingOptions();
+        _matchmakingService = matchmakingService ?? throw new ArgumentNullException(nameof(matchmakingService));
         EnsureSchema();
         _currentSessionId = GetOrCreateCurrentSessionId();
     }
 
     public Guid CurrentSessionId => _currentSessionId ??= GetOrCreateCurrentSessionId();
+
+    public void SetTestMode(bool isTest)
+    {
+        if (IsTestMode == isTest) return;
+        IsTestMode = isTest;
+        _currentSessionId = GetOrCreateCurrentSessionId();
+        ModeChanged?.Invoke();
+        OnChange?.Invoke();
+    }
 
     public void EnsureSchema()
     {
@@ -40,7 +64,7 @@ public class SessionService
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var active = db.Sessions
-            .Where(s => s.EndedAt == null)
+            .Where(s => s.EndedAt == null && s.IsTest == IsTestMode)
             .OrderByDescending(s => s.StartedAt)
             .FirstOrDefault();
 
@@ -57,7 +81,7 @@ public class SessionService
             }
         }
 
-        return CreateSession(db, DefaultSessionName(today)).Id;
+        return CreateSession(db, DefaultSessionName(today), IsTestMode).Id;
     }
 
     public void EndCurrentSession(string nextSessionName)
@@ -74,7 +98,7 @@ public class SessionService
             ? DefaultSessionName(DateOnly.FromDateTime(DateTime.UtcNow))
             : nextSessionName.Trim();
 
-        var newSession = CreateSession(db, name);
+        var newSession = CreateSession(db, name, IsTestMode);
         _currentSessionId = newSession.Id;
 
         SessionStarted?.Invoke();
@@ -124,7 +148,8 @@ public class SessionService
         int? teamAScore,
         int? teamBScore,
         TimeSpan duration,
-        IReadOnlyList<(Player Player, int SlotIndex)> players)
+        IReadOnlyList<(Player Player, int SlotIndex)> players,
+        MatchmakingDecision? matchmaking = null)
     {
         if (players.Count == 0)
             return;
@@ -157,6 +182,44 @@ public class SessionService
         }
 
         db.Games.Add(game);
+
+        if (matchmaking is not null)
+        {
+            var details = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                matchmaking.Pool,
+                matchmaking.Chosen,
+                matchmaking.Alternatives
+            });
+
+            db.MatchmakingExplanations.Add(new MatchmakingExplanation
+            {
+                SessionId = sessionId,
+                Game = game,
+                CourtId = courtId,
+                PickedAt = matchmaking.PickedAt,
+                WaitingPoolSize = matchmaking.WaitingPoolSize,
+                CandidatesConsidered = matchmaking.CandidatesConsidered,
+                RankAmongCandidates = matchmaking.RankAmongCandidates,
+                UsedRandomness = matchmaking.UsedRandomness,
+                TotalScore = matchmaking.TotalScore,
+                WaitingScore = matchmaking.WaitingScore,
+                MixingScore = matchmaking.MixingScore,
+                BalanceScore = matchmaking.BalanceScore,
+                PeerScore = matchmaking.PeerScore,
+                HomogeneityScore = matchmaking.HomogeneityScore,
+                WaitingWeight = matchmaking.WaitingWeight,
+                MixingWeight = matchmaking.MixingWeight,
+                BalanceWeight = matchmaking.BalanceWeight,
+                PeerWeight = matchmaking.PeerWeight,
+                HomogeneityWeight = matchmaking.HomogeneityWeight,
+                Algorithm = matchmaking.Algorithm,
+                DominantFactor = matchmaking.DominantFactor,
+                Summary = matchmaking.Summary,
+                DetailsJson = details
+            });
+        }
+
         db.SaveChanges();
         OnChange?.Invoke();
     }
@@ -219,6 +282,7 @@ public class SessionService
     {
         using var db = _dbFactory.CreateDbContext();
         return db.Sessions
+            .Where(s => s.IsTest == IsTestMode)
             .OrderByDescending(s => s.Date)
             .ThenByDescending(s => s.StartedAt)
             .Select(s => new SessionSummaryRow(
@@ -227,7 +291,8 @@ public class SessionService
                 s.Name,
                 s.Games.Count,
                 s.Attendances.Count,
-                s.EndedAt == null))
+                s.EndedAt == null,
+                s.IsTest))
             .ToList();
     }
 
@@ -235,12 +300,12 @@ public class SessionService
     {
         using var db = _dbFactory.CreateDbContext();
         var attendances = sessionId is null
-            ? db.SessionAttendances
+            ? db.SessionAttendances.Where(a => a.Session.IsTest == IsTestMode)
             : db.SessionAttendances.Where(a => a.SessionId == sessionId);
         var paid = attendances.Count(a => a.HasPaid);
         var total = attendances.Select(a => a.PlayerId).Distinct().Count();
         var games = sessionId is null
-            ? db.Games.Count()
+            ? db.Games.Count(g => g.Session.IsTest == IsTestMode)
             : db.Games.Count(g => g.SessionId == sessionId);
 
         return new SessionStats(games, total, paid, Math.Max(0, attendances.Count() - paid));
@@ -253,6 +318,8 @@ public class SessionService
         var gamesQuery = db.Games.AsQueryable();
         if (sessionId is not null)
             gamesQuery = gamesQuery.Where(g => g.SessionId == sessionId);
+        else
+            gamesQuery = gamesQuery.Where(g => g.Session.IsTest == IsTestMode);
 
         var games = gamesQuery
             .Include(g => g.Players)
@@ -263,6 +330,8 @@ public class SessionService
         var attendanceQuery = db.SessionAttendances.AsQueryable();
         if (sessionId is not null)
             attendanceQuery = attendanceQuery.Where(a => a.SessionId == sessionId);
+        else
+            attendanceQuery = attendanceQuery.Where(a => a.Session.IsTest == IsTestMode);
 
         var attendances = attendanceQuery
             .Include(a => a.Player)
@@ -273,19 +342,24 @@ public class SessionService
             .GroupBy(a => a.PlayerId)
             .ToDictionary(g => g.Key, g => g.Any(a => a.HasPaid));
 
-        var stats = new Dictionary<Guid, (string Name, int Games, int Wins, int Losses, int PointsFor, int PointsAgainst)>();
+        // Rating is always all-sessions (within mode) with recency weighting
+        var globalRatings = _matchmakingService.GetGlobalRatings(IsTestMode)
+            .ToDictionary(r => r.PlayerId);
+
+        var stats = new Dictionary<Guid, (string Name, int Games, int Wins, int Losses, int PointsFor, int PointsAgainst, double ClosenessSum)>();
 
         foreach (var attendance in attendances.GroupBy(a => a.PlayerId).Select(g => g.First()))
         {
-            stats[attendance.PlayerId] = (attendance.Player.Name, 0, 0, 0, 0, 0);
+            stats[attendance.PlayerId] = (attendance.Player.Name, 0, 0, 0, 0, 0, 0);
         }
 
         foreach (var game in games)
         {
+            var closeness = PlayerRatingCalculator.GameCloseness(game.TeamAScore, game.TeamBScore);
             foreach (var gp in game.Players)
             {
                 if (!stats.TryGetValue(gp.PlayerId, out var row))
-                    row = (gp.Player.Name, 0, 0, 0, 0, 0);
+                    row = (gp.Player.Name, 0, 0, 0, 0, 0, 0);
 
                 var won = game.WinnerSide == gp.TeamSide;
                 var lost = game.WinnerSide is "TeamA" or "TeamB" && game.WinnerSide != gp.TeamSide;
@@ -299,19 +373,36 @@ public class SessionService
                     row.Wins + (won ? 1 : 0),
                     row.Losses + (lost ? 1 : 0),
                     row.PointsFor + pointsFor,
-                    row.PointsAgainst + pointsAgainst);
+                    row.PointsAgainst + pointsAgainst,
+                    row.ClosenessSum + closeness);
+            }
+        }
+
+        // Include anyone with a global rating even if not in this session's attendance/games list
+        // (only when viewing all sessions — for a single session keep attendees + players who played)
+        if (sessionId is null)
+        {
+            foreach (var g in globalRatings.Values)
+            {
+                if (!stats.ContainsKey(g.PlayerId))
+                    stats[g.PlayerId] = (g.Name, g.Games, g.Wins, g.Losses, g.PointsFor, g.PointsAgainst, g.Closeness * Math.Max(1, g.Games));
             }
         }
 
         return stats
             .Select(kv =>
             {
-                var (name, gamesPlayed, wins, losses, pointsFor, pointsAgainst) = kv.Value;
+                var (name, gamesPlayed, wins, losses, pointsFor, pointsAgainst, closenessSum) = kv.Value;
                 var winRate = gamesPlayed > 0 ? Math.Round(100.0 * wins / gamesPlayed, 1) : 0;
+                var closeness = gamesPlayed > 0 ? Math.Round(closenessSum / gamesPlayed, 1) : 50;
+                var rating = globalRatings.TryGetValue(kv.Key, out var global)
+                    ? global.Rating
+                    : _matchmaking.Rating.DefaultRating;
                 var hasPaid = paidByPlayer.TryGetValue(kv.Key, out var paid) && paid;
-                return new PlayerRankingRow(kv.Key, name, gamesPlayed, wins, losses, winRate, pointsFor, pointsAgainst, hasPaid);
+                return new PlayerRankingRow(kv.Key, name, gamesPlayed, wins, losses, winRate, closeness, rating, pointsFor, pointsAgainst, hasPaid);
             })
-            .OrderByDescending(r => r.Wins)
+            .OrderByDescending(r => r.Rating)
+            .ThenByDescending(r => r.Wins)
             .ThenByDescending(r => r.WinRate)
             .ThenByDescending(r => r.Games)
             .ThenBy(r => r.Name)
@@ -325,6 +416,8 @@ public class SessionService
         var query = db.Games.AsQueryable();
         if (sessionId is not null)
             query = query.Where(g => g.SessionId == sessionId);
+        else
+            query = query.Where(g => g.Session.IsTest == IsTestMode);
 
         return query
             .Include(g => g.Players)
@@ -350,10 +443,108 @@ public class SessionService
             .ToList();
     }
 
+    public List<MatchmakingExplanationRow> GetMatchmakingExplanations(Guid? sessionId, int limit = 40)
+    {
+        using var db = _dbFactory.CreateDbContext();
+
+        var query = db.MatchmakingExplanations
+            .Include(m => m.Game!)
+            .ThenInclude(g => g.Players)
+            .ThenInclude(gp => gp.Player)
+            .AsQueryable();
+
+        if (sessionId is not null)
+            query = query.Where(m => m.SessionId == sessionId);
+        else
+            query = query.Where(m => m.Session.IsTest == IsTestMode);
+
+        return query
+            .OrderByDescending(m => m.PickedAt)
+            .Take(limit)
+            .AsNoTracking()
+            .ToList()
+            .Select(m =>
+            {
+                var details = ParseDetails(m.DetailsJson);
+                string teamA, teamB;
+                if (m.Game is not null)
+                {
+                    teamA = string.Join(" & ", m.Game.Players.Where(p => p.TeamSide == "TeamA").OrderBy(p => p.SlotIndex).Select(p => p.Player.Name));
+                    teamB = string.Join(" & ", m.Game.Players.Where(p => p.TeamSide == "TeamB").OrderBy(p => p.SlotIndex).Select(p => p.Player.Name));
+                }
+                else
+                {
+                    teamA = string.Join(" & ", details.Chosen.Where(c => c.TeamSide == "TeamA").Select(c => c.Name));
+                    teamB = string.Join(" & ", details.Chosen.Where(c => c.TeamSide == "TeamB").Select(c => c.Name));
+                }
+
+                return new MatchmakingExplanationRow(
+                    m.Id,
+                    m.GameId,
+                    m.CourtId,
+                    m.PickedAt,
+                    m.Game?.EndedAt,
+                    teamA,
+                    teamB,
+                    m.Game?.TeamAScore,
+                    m.Game?.TeamBScore,
+                    m.Game?.WinnerSide ?? "",
+                    m.TotalScore,
+                    m.WaitingScore,
+                    m.MixingScore,
+                    m.BalanceScore,
+                    m.PeerScore,
+                    m.HomogeneityScore,
+                    m.WaitingWeight,
+                    m.MixingWeight,
+                    m.BalanceWeight,
+                    m.PeerWeight,
+                    m.HomogeneityWeight,
+                    m.Algorithm,
+                    m.DominantFactor,
+                    m.Summary,
+                    m.WaitingPoolSize,
+                    m.CandidatesConsidered,
+                    m.RankAmongCandidates,
+                    m.UsedRandomness,
+                    details.Pool,
+                    details.Chosen,
+                    details.Alternatives);
+            })
+            .ToList();
+    }
+
+    private static (List<MatchmakingPlayerSnapshot> Pool, List<MatchmakingPlayerSnapshot> Chosen, List<MatchmakingAlternative> Alternatives) ParseDetails(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var root = doc.RootElement;
+            var pool = root.TryGetProperty("Pool", out var p)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<MatchmakingPlayerSnapshot>>(p.GetRawText()) ?? new()
+                : new();
+            var chosen = root.TryGetProperty("Chosen", out var c)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<MatchmakingPlayerSnapshot>>(c.GetRawText()) ?? new()
+                : new();
+            var alts = root.TryGetProperty("Alternatives", out var a)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<MatchmakingAlternative>>(a.GetRawText()) ?? new()
+                : new();
+            return (pool, chosen, alts);
+        }
+        catch
+        {
+            return (new(), new(), new());
+        }
+    }
+
     public List<Player> GetAllPlayers()
     {
         using var db = _dbFactory.CreateDbContext();
-        return db.Players.AsNoTracking().OrderBy(p => p.Name).ToList();
+        return db.Players
+            .AsNoTracking()
+            .Where(p => p.IsTest == IsTestMode)
+            .OrderBy(p => p.Name)
+            .ToList();
     }
 
     public HashSet<Guid> GetAttendeeIds(Guid sessionId)
@@ -365,14 +556,15 @@ public class SessionService
             .ToHashSet();
     }
 
-    private static Session CreateSession(RallyBoardDbContext db, string name)
+    private Session CreateSession(RallyBoardDbContext db, string name, bool isTest)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var session = new Session
         {
             Date = today,
             Name = name,
-            StartedAt = DateTime.UtcNow
+            StartedAt = DateTime.UtcNow,
+            IsTest = isTest
         };
         db.Sessions.Add(session);
         db.SaveChanges();

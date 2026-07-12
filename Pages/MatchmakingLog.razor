@@ -1,0 +1,230 @@
+@page "/dashboard/picks"
+@inject SessionService Sessions
+@implements IDisposable
+
+<PageTitle>RallyBoard — Matchmaking picks</PageTitle>
+
+<section class="dashboard">
+    <div class="dashboard__head">
+        <div>
+            <h1>Matchmaking picks</h1>
+            <p class="dashboard__subtitle">Why each game was chosen from the waiting pool</p>
+        </div>
+        <div class="dashboard__head-actions">
+            <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
+            <a class="btn btn-primary" href="/">Back to courts</a>
+        </div>
+    </div>
+
+    <div class="dashboard__session-bar">
+        <label class="dashboard__label" for="pick-session">Session</label>
+        <select id="pick-session" class="dashboard__select" @bind="_selectedKey" @bind:after="LoadData">
+            <option value="@AllSessionsKey">All sessions</option>
+            @foreach (var session in _sessions)
+            {
+                <option value="@session.Id.ToString()">
+                    @(string.IsNullOrWhiteSpace(session.Name) ? session.Date.ToString("ddd d MMM yyyy") : session.Name)
+                    @(session.IsActive ? " (active)" : "")
+                </option>
+            }
+        </select>
+    </div>
+
+    @if (_explanations.Count == 0)
+    {
+        <section class="dashboard-panel">
+            <p class="dashboard__empty">No matchmaking picks recorded yet. Use Pick Game or Shuffle — explanations are saved when a game ends.</p>
+        </section>
+    }
+    else
+    {
+        <div class="pick-list">
+            @foreach (var row in _explanations)
+            {
+                var expanded = _expandedId == row.Id;
+                <article class="pick-card @(expanded ? "pick-card--open" : "")">
+                    <button type="button" class="pick-card__head" @onclick="() => Toggle(row.Id)">
+                        <div class="pick-card__meta">
+                            <span class="pick-card__court">Court @row.CourtId</span>
+                            <span class="pick-card__time">@row.PickedAt.ToLocalTime().ToString("ddd HH:mm")</span>
+                            @if (!string.IsNullOrWhiteSpace(row.Algorithm))
+                            {
+                                <span class="pick-card__badge pick-card__badge--algo">@row.Algorithm</span>
+                            }
+                            @if (row.UsedRandomness)
+                            {
+                                <span class="pick-card__badge">randomised</span>
+                            }
+                            <span class="pick-card__badge pick-card__badge--factor">@row.DominantFactor</span>
+                        </div>
+                        <div class="pick-card__lineup">
+                            <span class="data-table__winner">@row.TeamANames</span>
+                            <span class="pick-card__vs">vs</span>
+                            <span>@row.TeamBNames</span>
+                        </div>
+                        <div class="pick-card__score-row">
+                            <span>Total @row.TotalScore.ToString("0.#")</span>
+                            <span>Rank #@row.RankAmongCandidates / @row.CandidatesConsidered</span>
+                            <span>Pool @row.WaitingPoolSize</span>
+                            <span class="pick-card__chevron">@(expanded ? "▾" : "▸")</span>
+                        </div>
+                    </button>
+
+                    @if (expanded)
+                    {
+                        <div class="pick-card__body">
+                            <p class="pick-card__summary">@row.Summary</p>
+
+                            <h3 class="pick-card__section-title">Factor scores</h3>
+                            <div class="factor-bars">
+                                @foreach (var factor in FactorBars(row))
+                                {
+                                    <div class="factor-bar">
+                                        <div class="factor-bar__label">
+                                            <span>@factor.Name</span>
+                                            <span>@factor.Score.ToString("0.#") · weight @factor.Weight.ToString("0.##") · contrib @factor.Contribution.ToString("0.#")</span>
+                                        </div>
+                                        <div class="factor-bar__track">
+                                            <div class="factor-bar__fill factor-bar__fill--@factor.Key" style="width: @(factor.Score)%"></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            <h3 class="pick-card__section-title">Chosen lineup (ratings at pick)</h3>
+                            <div class="pick-players">
+                                @foreach (var p in row.Chosen)
+                                {
+                                    <div class="pick-player @(p.IsTopPlayer ? "pick-player--top" : "")">
+                                        <span class="pick-player__name">@p.Name</span>
+                                        <span class="pick-player__side">@p.TeamSide</span>
+                                        <span class="pick-player__rating">@p.Rating</span>
+                                        <span class="pick-player__wait">@FormatWait(p.WaitingSeconds)</span>
+                                        @if (p.IsTopPlayer)
+                                        {
+                                            <span class="pick-player__top">top</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            <h3 class="pick-card__section-title">Waiting pool (@row.WaitingPoolSize)</h3>
+                            <div class="pick-pool">
+                                @foreach (var p in row.Pool)
+                                {
+                                    var chosen = row.Chosen.Any(c => c.PlayerId == p.PlayerId);
+                                    <span class="pick-pool__chip @(chosen ? "pick-pool__chip--chosen" : "") @(p.IsTopPlayer ? "pick-pool__chip--top" : "")"
+                                          title="Rating @p.Rating · waited @FormatWait(p.WaitingSeconds)">
+                                        @p.Name <em>@p.Rating</em>
+                                    </span>
+                                }
+                            </div>
+
+                            @if (row.Alternatives.Count > 1)
+                            {
+                                <h3 class="pick-card__section-title">Top alternatives considered</h3>
+                                <div class="table-wrap">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Players</th>
+                                                <th>Total</th>
+                                                <th>Wait</th>
+                                                <th>Mix</th>
+                                                <th>Bal</th>
+                                                <th>Peer</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var alt in row.Alternatives)
+                                            {
+                                                <tr class="@(alt.Rank == row.RankAmongCandidates ? "data-table__row--top1" : "")">
+                                                    <td>@alt.Rank</td>
+                                                    <td>@string.Join(", ", alt.PlayerNames)</td>
+                                                    <td>@alt.TotalScore.ToString("0.#")</td>
+                                                    <td>@alt.WaitingScore.ToString("0.#")</td>
+                                                    <td>@alt.MixingScore.ToString("0.#")</td>
+                                                    <td>@alt.BalanceScore.ToString("0.#")</td>
+                                                    <td>@alt.PeerScore.ToString("0.#")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private const string AllSessionsKey = "all";
+
+    private List<SessionSummaryRow> _sessions = new();
+    private List<MatchmakingExplanationRow> _explanations = new();
+    private string _selectedKey = AllSessionsKey;
+    private Guid? _expandedId;
+
+    protected override void OnInitialized()
+    {
+        Sessions.OnChange += Refresh;
+        Sessions.ModeChanged += OnModeChanged;
+        _selectedKey = Sessions.CurrentSessionId.ToString();
+        LoadData();
+    }
+
+    private void OnModeChanged() => InvokeAsync(() =>
+    {
+        _selectedKey = Sessions.CurrentSessionId.ToString();
+        _expandedId = null;
+        LoadData();
+        StateHasChanged();
+    });
+
+    private void LoadData()
+    {
+        _sessions = Sessions.GetSessions();
+        Guid? sessionId = _selectedKey == AllSessionsKey
+            ? null
+            : Guid.TryParse(_selectedKey, out var id) ? id : Sessions.CurrentSessionId;
+        _explanations = Sessions.GetMatchmakingExplanations(sessionId);
+    }
+
+    private void Toggle(Guid id) => _expandedId = _expandedId == id ? null : id;
+
+    private void Refresh() => InvokeAsync(() =>
+    {
+        LoadData();
+        StateHasChanged();
+    });
+
+    private static string FormatWait(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(seconds);
+        if (ts.TotalHours >= 1) return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+        if (ts.TotalMinutes >= 1) return $"{ts.Minutes}m {ts.Seconds}s";
+        return $"{ts.Seconds}s";
+    }
+
+    private static IEnumerable<(string Key, string Name, double Score, double Weight, double Contribution)> FactorBars(MatchmakingExplanationRow row)
+    {
+        var sum = row.WaitingWeight + row.MixingWeight + row.BalanceWeight + row.PeerWeight + row.HomogeneityWeight;
+        if (sum <= 0) sum = 1;
+        yield return ("wait", "Waiting", row.WaitingScore, row.WaitingWeight, row.WaitingScore * row.WaitingWeight / sum);
+        yield return ("mix", "Mixing", row.MixingScore, row.MixingWeight, row.MixingScore * row.MixingWeight / sum);
+        yield return ("bal", "Balance", row.BalanceScore, row.BalanceWeight, row.BalanceScore * row.BalanceWeight / sum);
+        yield return ("peer", "Peer", row.PeerScore, row.PeerWeight, row.PeerScore * row.PeerWeight / sum);
+        if (row.HomogeneityWeight > 0)
+            yield return ("hom", "Homogeneity", row.HomogeneityScore, row.HomogeneityWeight, row.HomogeneityScore * row.HomogeneityWeight / sum);
+    }
+
+    public void Dispose()
+    {
+        Sessions.OnChange -= Refresh;
+        Sessions.ModeChanged -= OnModeChanged;
+    }
+}

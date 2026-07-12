@@ -8,6 +8,9 @@ public class Session
     public DateTime StartedAt { get; set; }
     public DateTime? EndedAt { get; set; }
 
+    /// <summary>Test-mode session; excluded from Live history and ratings.</summary>
+    public bool IsTest { get; set; }
+
     public ICollection<SessionAttendance> Attendances { get; set; } = new List<SessionAttendance>();
     public ICollection<Game> Games { get; set; } = new List<Game>();
 }
