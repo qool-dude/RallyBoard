@@ -1,10 +1,14 @@
 @implements IDisposable
 @inject CourtAllocationService Allocation
 
-<div class="court @(Court.IsFull ? "court--full" : "")">
+<div class="court @(Court.IsFull ? "court--full" : "") @(Court.IsRunning ? "court--live" : "") @(Court.IsPaused ? "court--paused" : "")">
     <div class="court__head">
         <h3>@Court.Name</h3>
         <span class="court__count">@Court.FilledCount/4</span>
+        @if (Court.FilledCount > 0 && !Court.LineupLocked)
+        {
+            <button class="icon-btn court__clear" title="Clear court" @onclick="AskClearCourt">&#8635;</button>
+        }
         <div class="court__actions">
             @if (Court.FilledCount < 2)
             {
@@ -14,15 +18,14 @@
             }
             else
             {
-                <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : "Start timer")" @onclick="ToggleTimer">
+                <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : Court.IsPaused ? "Resume timer" : "Start timer")" @onclick="ToggleTimer">
                     @(Court.IsRunning ? "⏸" : "▶")
                 </button>
                 <span class="court__timer">@Elapsed</span>
-                @if (Court.IsRunning)
+                @if (Court.IsRunning || Court.IsPaused)
                 {
-                  <button class="icon-btn" title="End game" disabled="@(Court.FilledCount < 2)" @onclick="OpenEndGame">✓</button>
+                    <button type="button" class="btn btn-primary btn-sm" disabled="@(Court.FilledCount < 2)" @onclick="OpenEndGame">End game</button>
                 }
-                <button class="icon-btn" title="Clear court" @onclick="ClearCourt">&#8635;</button>
             }
         </div>
     </div>
@@ -40,6 +43,23 @@
     </div>
 </div>
 
+@if (_confirmClear)
+{
+    <div class="modal-backdrop" @onclick="CancelClearCourt">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="clear-court-title">
+            <div class="modal-panel__head">
+                <h3 id="clear-court-title">Clear @Court.Name?</h3>
+                <button type="button" class="modal-panel__close" @onclick="CancelClearCourt" aria-label="Cancel">&times;</button>
+            </div>
+            <p class="modal-panel__hint">Players on this court will go back to the waiting pool. The timer will stop.</p>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-ghost" @onclick="CancelClearCourt">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="ConfirmClearCourt">Clear court</button>
+            </div>
+        </div>
+    </div>
+}
+
 <EndGameModal @ref="popup" Court="Court"
               Visible="_showEndGame"
               PreviewSlots="_pendingPick?.Slots"
@@ -53,6 +73,7 @@
 
     private System.Threading.Timer? _timer;
     private bool _showEndGame;
+    private bool _confirmClear;
     private MatchmakingPickResult? _pendingPick;
     EndGameModal popup = null!;
 
@@ -103,7 +124,15 @@
 
     private void ToggleTimer() => Allocation.ToggleTimer(Court);
 
-    private void ClearCourt() => Allocation.ClearCourt(Court);
+    private void AskClearCourt() => _confirmClear = true;
+
+    private void CancelClearCourt() => _confirmClear = false;
+
+    private void ConfirmClearCourt()
+    {
+        _confirmClear = false;
+        Allocation.ClearCourt(Court);
+    }
 
     private void CloseModal()
     {

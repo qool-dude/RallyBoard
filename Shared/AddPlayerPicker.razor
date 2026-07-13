@@ -1,0 +1,153 @@
+@inject CourtAllocationService Allocation
+@implements IDisposable
+
+<form class="waiting__add player-picker toolbar__add" @onsubmit="AddPlayer" @onsubmit:preventDefault>
+    <input class="player-picker__input"
+           @bind="_filter"
+           @bind:event="oninput"
+           @onfocus="OpenDropdown"
+           @onkeydown="OnKeyDown"
+           placeholder="Add a player…"
+           autocomplete="off"
+           aria-label="Search players"
+           aria-expanded="@_dropdownOpen"
+           aria-controls="player-picker-list" />
+    <button type="submit" class="btn btn-primary btn-sm">Add</button>
+    @if (_dropdownOpen && FilteredPlayers.Count > 0)
+    {
+        <ul id="player-picker-list" class="player-picker__list" role="listbox">
+            @for (var i = 0; i < FilteredPlayers.Count; i++)
+            {
+                var player = FilteredPlayers[i];
+                var index = i;
+                <li class="player-picker__item @(_highlightIndex == index ? "player-picker__item--active" : "")"
+                    role="option"
+                    @onclick="() => SelectPlayer(player)"
+                    @onmousedown:preventDefault
+                    @onmouseenter="() => _highlightIndex = index">
+                    <span class="player-picker__avatar chip--@(player.ColorIndex % 6)">@player.Initials</span>
+                    @player.Name
+                </li>
+            }
+        </ul>
+    }
+    else if (_dropdownOpen && !string.IsNullOrWhiteSpace(_filter) && FilteredPlayers.Count == 0)
+    {
+        <div class="player-picker__empty">No match — press Add to create "@_filter.Trim()"</div>
+    }
+</form>
+
+@code {
+    private string _filter = "";
+    private bool _dropdownOpen;
+    private int _highlightIndex;
+    private List<Player> _roster = new();
+
+    private List<Player> FilteredPlayers
+    {
+        get
+        {
+            var active = Allocation.GetActivePlayerIds();
+            var available = _roster.Where(p => !active.Contains(p.Id));
+
+            if (string.IsNullOrWhiteSpace(_filter))
+                return available.ToList();
+
+            return available
+                .Where(p => p.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        RefreshRoster();
+        Allocation.OnChange += OnStateChanged;
+    }
+
+    private void OnStateChanged()
+    {
+        RefreshRoster();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void RefreshRoster() => _roster = Allocation.GetRosterPlayers();
+
+    private void OpenDropdown()
+    {
+        _dropdownOpen = true;
+        _highlightIndex = 0;
+    }
+
+    private void CloseDropdown()
+    {
+        _dropdownOpen = false;
+        _highlightIndex = 0;
+    }
+
+    private void SelectPlayer(Player player)
+    {
+        Allocation.CheckInPlayer(player.Id);
+        _filter = "";
+        CloseDropdown();
+    }
+
+    private void AddPlayer()
+    {
+        if (string.IsNullOrWhiteSpace(_filter)) return;
+
+        var trimmed = _filter.Trim();
+
+        if (_dropdownOpen && FilteredPlayers.Count > 0 && _highlightIndex < FilteredPlayers.Count)
+        {
+            SelectPlayer(FilteredPlayers[_highlightIndex]);
+            return;
+        }
+
+        var exactMatch = _roster.FirstOrDefault(p =>
+            p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase)
+            && !Allocation.GetActivePlayerIds().Contains(p.Id));
+
+        if (exactMatch is not null)
+        {
+            SelectPlayer(exactMatch);
+            return;
+        }
+
+        Allocation.AddPlayer(trimmed);
+        _filter = "";
+        CloseDropdown();
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (!_dropdownOpen && e.Key is "ArrowDown" or "Enter")
+        {
+            OpenDropdown();
+            return;
+        }
+
+        if (!_dropdownOpen) return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _highlightIndex = Math.Min(_highlightIndex + 1, FilteredPlayers.Count - 1);
+                break;
+            case "ArrowUp":
+                _highlightIndex = Math.Max(_highlightIndex - 1, 0);
+                break;
+            case "Enter":
+                if (FilteredPlayers.Count > 0 && _highlightIndex < FilteredPlayers.Count)
+                    SelectPlayer(FilteredPlayers[_highlightIndex]);
+                else
+                    AddPlayer();
+                break;
+            case "Escape":
+                CloseDropdown();
+                break;
+        }
+    }
+
+    public void Dispose() => Allocation.OnChange -= OnStateChanged;
+}

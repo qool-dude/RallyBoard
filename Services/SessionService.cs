@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using RallyBoard.Data;
 using RallyBoard.Models;
 
@@ -8,7 +7,7 @@ namespace RallyBoard.Services;
 public class SessionService
 {
     private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
-    private readonly MatchmakingOptions _matchmaking;
+    private readonly MatchmakingSettingsService _matchmakingSettings;
     private readonly MatchmakingService _matchmakingService;
     private Guid? _currentSessionId;
 
@@ -24,11 +23,11 @@ public class SessionService
 
     public SessionService(
         IDbContextFactory<RallyBoardDbContext> dbFactory,
-        IOptions<MatchmakingOptions> matchmaking,
+        MatchmakingSettingsService matchmakingSettings,
         MatchmakingService matchmakingService)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
-        _matchmaking = matchmaking?.Value ?? new MatchmakingOptions();
+        _matchmakingSettings = matchmakingSettings ?? throw new ArgumentNullException(nameof(matchmakingSettings));
         _matchmakingService = matchmakingService ?? throw new ArgumentNullException(nameof(matchmakingService));
         EnsureSchema();
         _currentSessionId = GetOrCreateCurrentSessionId();
@@ -397,7 +396,7 @@ public class SessionService
                 var closeness = gamesPlayed > 0 ? Math.Round(closenessSum / gamesPlayed, 1) : 50;
                 var rating = globalRatings.TryGetValue(kv.Key, out var global)
                     ? global.Rating
-                    : _matchmaking.Rating.DefaultRating;
+                    : _matchmakingSettings.Current.Rating.DefaultRating;
                 var hasPaid = paidByPlayer.TryGetValue(kv.Key, out var paid) && paid;
                 return new PlayerRankingRow(kv.Key, name, gamesPlayed, wins, losses, winRate, closeness, rating, pointsFor, pointsAgainst, hasPaid);
             })

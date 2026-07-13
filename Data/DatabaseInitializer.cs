@@ -87,6 +87,12 @@ public static class DatabaseInitializer
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityScore" double precision NOT NULL DEFAULT 0;
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityWeight" double precision NOT NULL DEFAULT 0;
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "Algorithm" text NOT NULL DEFAULT '';
+
+            CREATE TABLE IF NOT EXISTS "AppSettings" (
+                "Key" text NOT NULL PRIMARY KEY,
+                "JsonValue" text NOT NULL DEFAULT '{{}}',
+                "UpdatedAt" timestamp with time zone NOT NULL
+            );
             """);
     }
 }

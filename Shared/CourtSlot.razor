@@ -1,17 +1,52 @@
 @inject CourtAllocationService Allocation
+@implements IDisposable
 
-<div class="slot @(Player is null ? "slot--empty" : "") @(_dragOver ? "slot--dragover" : "")"
-     @ondragover="@(() => { })" @ondragover:preventDefault
-     @ondragenter="() => _dragOver = true"
+<div class="slot @(Player is null ? "slot--empty" : "") @(_dragOver ? "slot--dragover" : "") @(_pickerOpen ? "slot--picker-open" : "") @(Court.LineupLocked ? "slot--locked" : "")"
+     @ondragover="HandleDragOver" @ondragover:preventDefault
+     @ondragenter="HandleDragEnter"
      @ondragleave="() => _dragOver = false"
      @ondrop="HandleDrop" @ondrop:preventDefault>
     @if (Player is not null)
     {
-        <PlayerChip @key="Player.Id" Player="Player" ShowRemove="ShowRemove" />
+        <PlayerChip @key="Player.Id" Player="Player" ShowRemove="ShowRemove && !Court.LineupLocked" Locked="Court.LineupLocked" />
+    }
+    else if (Court.LineupLocked)
+    {
+        <span class="slot__placeholder">Locked</span>
     }
     else
     {
-        <span class="slot__placeholder">Drop player</span>
+        @if (_pickerOpen)
+        {
+            <div class="chip-menu-backdrop" @onclick="ClosePicker" @onmousedown:preventDefault></div>
+        }
+        <button type="button"
+                class="slot__select"
+                @onclick="TogglePicker"
+                @onclick:stopPropagation>
+            Select player
+        </button>
+        @if (_pickerOpen)
+        {
+            <div class="slot__picker" @onclick:stopPropagation>
+                @if (WaitingPlayers.Count == 0)
+                {
+                    <div class="slot__picker-empty">No one waiting</div>
+                }
+                else
+                {
+                    @foreach (var waiting in WaitingPlayers)
+                    {
+                        <button type="button"
+                                class="slot__picker-item"
+                                @onclick="() => SelectPlayer(waiting)">
+                            <span class="slot__picker-avatar chip--@(waiting.ColorIndex % 6)">@waiting.Initials</span>
+                            @waiting.Name
+                        </button>
+                    }
+                }
+            </div>
+        }
     }
 </div>
 
@@ -22,10 +57,56 @@
     [Parameter] public bool ShowRemove { get; set; } = true;
 
     private bool _dragOver;
+    private bool _pickerOpen;
+
+    private List<Player> WaitingPlayers =>
+        Allocation.Waiting.OrderBy(p => p.Name).ToList();
+
+    protected override void OnInitialized()
+    {
+        Allocation.OnChange += OnBoardChanged;
+    }
+
+    private void HandleDragOver()
+    {
+        if (Court.LineupLocked) return;
+    }
+
+    private void HandleDragEnter()
+    {
+        if (Court.LineupLocked) return;
+        _dragOver = true;
+    }
 
     private void HandleDrop()
     {
         _dragOver = false;
+        if (Court.LineupLocked) return;
+        ClosePicker();
         Allocation.DropOnSlot(Court, Index);
     }
+
+    private void TogglePicker()
+    {
+        if (Court.LineupLocked) return;
+        _pickerOpen = !_pickerOpen;
+    }
+
+    private void ClosePicker() => _pickerOpen = false;
+
+    private void SelectPlayer(Player player)
+    {
+        if (Court.LineupLocked) return;
+        ClosePicker();
+        Allocation.AssignPlayerToSlot(Court, Index, player);
+    }
+
+    private void OnBoardChanged()
+    {
+        if (_pickerOpen && Court.LineupLocked)
+            _pickerOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Allocation.OnChange -= OnBoardChanged;
 }

@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using RallyBoard.Data;
 using RallyBoard.Models;
 
@@ -8,18 +7,18 @@ namespace RallyBoard.Services;
 public class MatchmakingService
 {
     private readonly IDbContextFactory<RallyBoardDbContext> _dbFactory;
-    private readonly MatchmakingOptions _options;
+    private readonly MatchmakingSettingsService _settings;
     private readonly Random _random = new();
 
     public MatchmakingService(
         IDbContextFactory<RallyBoardDbContext> dbFactory,
-        IOptions<MatchmakingOptions> options)
+        MatchmakingSettingsService settings)
     {
         _dbFactory = dbFactory;
-        _options = options.Value;
+        _settings = settings;
     }
 
-    public MatchmakingOptions Options => _options;
+    public MatchmakingOptions Options => _settings.Current;
 
     public Dictionary<Guid, double> GetRatings(bool isTest)
     {
@@ -56,7 +55,7 @@ public class MatchmakingService
         foreach (var game in games)
         {
             var rank = recencyRank.TryGetValue(game.SessionId, out var r) ? r : int.MaxValue;
-            var weight = PlayerRatingCalculator.SessionRecencyWeight(rank, _options.Rating);
+            var weight = PlayerRatingCalculator.SessionRecencyWeight(rank, Options.Rating);
             var closeness = PlayerRatingCalculator.GameCloseness(game.TeamAScore, game.TeamBScore);
 
             foreach (var gp in game.Players)
@@ -87,7 +86,7 @@ public class MatchmakingService
             var (name, rawGames, rawWins, rawLosses, pf, pa, wGames, wWins, wClose) = kv.Value;
             var winRate = rawGames > 0 ? Math.Round(100.0 * rawWins / rawGames, 1) : 0;
             var closeness = wGames > 0 ? Math.Round(wClose / wGames, 1) : 50;
-            var rating = PlayerRatingCalculator.ComputeRating(wGames, wWins, wClose, rawGames, _options.Rating);
+            var rating = PlayerRatingCalculator.ComputeRating(wGames, wWins, wClose, rawGames, Options.Rating);
             return new PlayerMatchStats(kv.Key, name, rawGames, rawWins, rawLosses, winRate, closeness, rating, pf, pa);
         }).ToList();
     }
@@ -101,9 +100,9 @@ public class MatchmakingService
             return null;
 
         var ratings = GetRatings(isTest);
-        var recentPairs = GetRecentPairCounts(sessionId, _options.Selection.RecentGamesLookback);
+        var recentPairs = GetRecentPairCounts(sessionId, Options.Selection.RecentGamesLookback);
         var usedFoursomes = GetSessionFoursomeKeys(sessionId);
-        var sel = _options.Selection;
+        var sel = Options.Selection;
 
         var useAbility = _random.NextDouble() < Math.Clamp(sel.AbilityAlgorithmChance, 0, 1);
         var algorithm = useAbility ? MatchmakingAlgorithms.Ability : MatchmakingAlgorithms.Balanced;
@@ -122,7 +121,7 @@ public class MatchmakingService
             weightSum = 4;
         }
 
-        var defaultRating = _options.Rating.DefaultRating;
+        var defaultRating = Options.Rating.DefaultRating;
         double RatingOf(Player p) =>
             ratings.TryGetValue(p.Id, out var r) ? r : defaultRating;
 
@@ -354,7 +353,7 @@ public class MatchmakingService
             [0, 3, 1, 2]
         ];
 
-        var defaultRating = _options.Rating.DefaultRating;
+        var defaultRating = Options.Rating.DefaultRating;
         balanceBias = Math.Clamp(balanceBias, 0, 1);
         var mixBias = 1.0 - balanceBias;
         double bestScore = double.MinValue;
@@ -378,7 +377,7 @@ public class MatchmakingService
                 PairCount(a0.Id, b0.Id) + PairCount(a0.Id, b1.Id) +
                 PairCount(a1.Id, b0.Id) + PairCount(a1.Id, b1.Id);
 
-            var mixScore = Math.Clamp(100.0 * (1.0 - pairHits / (6.0 * Math.Max(1, _options.Selection.RecentGamesLookback))), 0, 100);
+            var mixScore = Math.Clamp(100.0 * (1.0 - pairHits / (6.0 * Math.Max(1, Options.Selection.RecentGamesLookback))), 0, 100);
 
             var splitScore = balanceScore * balanceBias + mixScore * mixBias;
             if (splitScore > bestScore)

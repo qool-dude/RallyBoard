@@ -14,12 +14,15 @@ public class RallyBoardDbContext : DbContext
     public DbSet<Game> Games { get; set; } = null!;
     public DbSet<GamePlayer> GamePlayers { get; set; } = null!;
     public DbSet<MatchmakingExplanation> MatchmakingExplanations { get; set; } = null!;
+    public DbSet<AppSetting> AppSettings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Player>().HasKey(p => p.Id);
 
         modelBuilder.Entity<Assignment>().HasKey(a => a.Id);
+
+        modelBuilder.Entity<AppSetting>().HasKey(s => s.Key);
 
         modelBuilder.Entity<Session>().HasKey(s => s.Id);
         modelBuilder.Entity<Session>()

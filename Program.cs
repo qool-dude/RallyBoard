@@ -40,7 +40,9 @@ if (conn.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
 builder.Services.AddDbContextFactory<RallyBoardDbContext>(options => options.UseNpgsql(conn));
 
 builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
-builder.Services.Configure<MatchmakingOptions>(builder.Configuration.GetSection(MatchmakingOptions.SectionName));
+builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection(AdminOptions.SectionName));
+builder.Services.AddScoped<AdminService>();
+builder.Services.AddSingleton<MatchmakingSettingsService>();
 builder.Services.AddSingleton<MatchmakingService>();
 builder.Services.AddSingleton<SessionService>();
 // Centralized CourtAllocationService used by UI components (use singleton so all components share one timer)

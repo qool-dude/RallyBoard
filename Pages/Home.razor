@@ -1,6 +1,7 @@
 @page "/"
 @inject CourtAllocationService Allocation
 @inject SessionService Sessions
+@inject AdminService Admin
 @implements IDisposable
 
 <PageTitle>RallyBoard — Badminton Court Allocator</PageTitle>
@@ -13,23 +14,63 @@
         {
             <span class="mode-pill">Test</span>
         }
+        @if (Admin.IsAdmin)
+        {
+            <span class="mode-pill mode-pill--admin">Admin</span>
+        }
     </div>
 
-    <div class="toolbar__group">
-        <label class="toolbar__label">Courts</label>
-        <div class="stepper">
-            <button @onclick="() => SetCourts(Allocation.Courts.Count - 1)" aria-label="Fewer courts">&minus;</button>
-            <span>@Allocation.Courts.Count</span>
-            <button @onclick="() => SetCourts(Allocation.Courts.Count + 1)" aria-label="More courts">+</button>
+    <div class="toolbar__group toolbar__group--add">
+        <AddPlayerPicker />
+        <div class="overflow-menu">
+            <button type="button"
+                    class="overflow-menu__btn"
+                    title="More"
+                    aria-haspopup="menu"
+                    aria-expanded="@_overflowOpen"
+                    @onclick="ToggleOverflow">
+                ⋮
+            </button>
+            @if (_overflowOpen)
+            {
+                <div class="chip-menu-backdrop" @onclick="CloseOverflow"></div>
+                <div class="overflow-menu__panel" role="menu" @onclick:stopPropagation>
+                    @if (Admin.IsAdmin)
+                    {
+                        <button type="button" class="overflow-menu__item" role="menuitem" @onclick="ExitAdmin">Exit admin mode</button>
+                    }
+                    else
+                    {
+                        <button type="button" class="overflow-menu__item" role="menuitem" @onclick="OpenAdminLogin">Admin login</button>
+                    }
+                </div>
+            }
         </div>
     </div>
-
-    <div class="toolbar__group toolbar__group--actions">
-        <button class="btn btn-ghost" @onclick="ShuffleClick">Shuffle everyone</button>
-        <button class="btn btn-ghost" @onclick="Allocation.StartAllTimers">Start all games</button>
-        <button class="btn btn-ghost" @onclick="() => AskConfirm(ConfirmAction.Clear)">Clear all courts</button>
-    </div>
 </section>
+
+@if (Admin.IsAdmin)
+{
+    <div class="admin-bar">
+        <div class="admin-bar__left">
+            <span class="admin-bar__label">Admin mode</span>
+            <div class="admin-bar__group">
+                <label class="admin-bar__field-label" for="admin-court-count">Courts</label>
+                <div class="stepper" id="admin-court-count">
+                    <button type="button" @onclick="() => SetCourts(Allocation.Courts.Count - 1)" aria-label="Fewer courts">&minus;</button>
+                    <span>@Allocation.Courts.Count</span>
+                    <button type="button" @onclick="() => SetCourts(Allocation.Courts.Count + 1)" aria-label="More courts">+</button>
+                </div>
+            </div>
+            <div class="admin-bar__actions">
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="ShuffleClick">Shuffle everyone</button>
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="Allocation.StartAllTimers">Start all games</button>
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => AskConfirm(ConfirmAction.Clear)">Clear all courts</button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="ExitAdmin">Return to normal mode</button>
+    </div>
+}
 
 <section class="courts-grid">
     @foreach (var court in Allocation.Courts)
@@ -39,6 +80,36 @@
 </section>
 
 <WaitingPool />
+
+@if (_showAdminLogin)
+{
+    <div class="modal-backdrop" @onclick="CancelAdminLogin">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
+            <div class="modal-panel__head">
+                <h3 id="admin-login-title">Admin login</h3>
+                <button type="button" class="modal-panel__close" @onclick="CancelAdminLogin" aria-label="Cancel">&times;</button>
+            </div>
+            <form class="admin-login-form" @onsubmit="SubmitAdminLogin" @onsubmit:preventDefault>
+                <label class="admin-login-form__label" for="admin-password">Password</label>
+                <input id="admin-password"
+                       @ref="_adminPasswordInput"
+                       class="admin-login-form__input"
+                       type="password"
+                       value="@_adminPassword"
+                       @oninput="OnAdminPasswordInput"
+                       autocomplete="current-password" />
+                @if (!string.IsNullOrEmpty(_adminError))
+                {
+                    <p class="admin-login-form__error">@_adminError</p>
+                }
+                <div class="modal-panel__actions">
+                    <button type="button" class="btn btn-ghost" @onclick="CancelAdminLogin">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Enter admin</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
 
 @if (_pending is ConfirmAction action)
 {
@@ -62,20 +133,90 @@
 
     private string _sessionName = "";
     private ConfirmAction? _pending;
+    private bool _overflowOpen;
+    private bool _showAdminLogin;
+    private bool _focusAdminPassword;
+    private string _adminPassword = "";
+    private string _adminError = "";
+    private ElementReference _adminPasswordInput;
 
     protected override void OnInitialized()
     {
         Allocation.OnChange += Refresh;
         Sessions.OnChange += RefreshSession;
         Sessions.ModeChanged += RefreshSession;
+        Admin.OnChange += Refresh;
         RefreshSession();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusAdminPassword && _showAdminLogin)
+        {
+            _focusAdminPassword = false;
+            try
+            {
+                await _adminPasswordInput.FocusAsync();
+            }
+            catch
+            {
+                // Element may not be ready yet
+            }
+        }
+    }
+
+    private void ToggleOverflow() => _overflowOpen = !_overflowOpen;
+    private void CloseOverflow() => _overflowOpen = false;
+
+    private void OpenAdminLogin()
+    {
+        CloseOverflow();
+        _adminPassword = "";
+        _adminError = "";
+        _showAdminLogin = true;
+        _focusAdminPassword = true;
+    }
+
+    private void CancelAdminLogin()
+    {
+        _showAdminLogin = false;
+        _adminPassword = "";
+        _adminError = "";
+    }
+
+    private void OnAdminPasswordInput(ChangeEventArgs e)
+    {
+        _adminPassword = e.Value?.ToString() ?? "";
+        _adminError = "";
+
+        // Accept as soon as the correct password is fully typed
+        if (Admin.TryLogin(_adminPassword))
+            CancelAdminLogin();
+    }
+
+    private void SubmitAdminLogin()
+    {
+        if (Admin.TryLogin(_adminPassword))
+        {
+            CancelAdminLogin();
+            return;
+        }
+
+        _adminError = "Incorrect password.";
+        _adminPassword = "";
+        _focusAdminPassword = true;
+    }
+
+    private void ExitAdmin()
+    {
+        CloseOverflow();
+        Admin.Logout();
     }
 
     private void AskConfirm(ConfirmAction action) => _pending = action;
 
     private void ShuffleClick()
     {
-        // Nothing on court to disrupt — shuffle immediately
         if (Allocation.Courts.All(c => c.FilledCount == 0))
         {
             Allocation.ShuffleAll();
@@ -140,5 +281,6 @@
         Allocation.OnChange -= Refresh;
         Sessions.OnChange -= RefreshSession;
         Sessions.ModeChanged -= RefreshSession;
+        Admin.OnChange -= Refresh;
     }
 }

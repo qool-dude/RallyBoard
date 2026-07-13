@@ -1,9 +1,10 @@
 @inherits LayoutComponentBase
 @inject SessionService Sessions
+@inject AdminService Admin
 @inject NavigationManager Nav
 @implements IDisposable
 
-<div class="page @(Sessions.IsTestMode ? "page--test" : "page--live")">
+<div class="page @(Sessions.IsTestMode ? "page--test" : "page--live") @(Admin.IsAdmin ? "page--admin" : "")">
     <header class="site-header">
         <div class="site-header__inner">
             <a href="/" class="brand">
@@ -11,14 +12,18 @@
                 <span class="brand__wordmark">Rally<em>Board</em></span>
             </a>
             <nav class="site-nav">
-                <a href="/" class="site-nav__link">Courts</a>
-                <a href="/dashboard" class="site-nav__link">Dashboard</a>
-                @if (!IsCourtsPage)
+                @if (Admin.IsAdmin)
                 {
-                    <a href="/dashboard/picks" class="site-nav__link">Picks</a>
+                    <a href="/" class="site-nav__link">Courts</a>
+                    <a href="/dashboard" class="site-nav__link">Dashboard</a>
+                    @if (!IsCourtsPage)
+                    {
+                        <a href="/dashboard/picks" class="site-nav__link">Picks</a>
+                        <a href="/dashboard/matchmaking" class="site-nav__link">Pick settings</a>
+                    }
                 }
             </nav>
-            @if (!IsCourtsPage)
+            @if (Admin.IsAdmin && !IsCourtsPage)
             {
                 <div class="mode-toggle" role="group" aria-label="Data mode">
                     <button type="button"
@@ -33,7 +38,7 @@
                     </button>
                 </div>
             }
-            <span class="tagline">Doubles court allocator</span>
+            <StatsTicker />
         </div>
     </header>
 
@@ -46,6 +51,10 @@
         @if (Sessions.IsTestMode)
         {
             <span class="mode-footer-badge">Test mode</span>
+        }
+        @if (Admin.IsAdmin)
+        {
+            <span class="mode-footer-badge mode-footer-badge--admin">Admin</span>
         }
     </footer>
 </div>
@@ -60,17 +69,43 @@
         }
     }
 
+    private bool IsAdminOnlyPage
+    {
+        get
+        {
+            var path = new Uri(Nav.Uri).AbsolutePath.TrimEnd('/');
+            return path.StartsWith("/dashboard", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     protected override void OnInitialized()
     {
         Sessions.OnChange += Refresh;
         Sessions.ModeChanged += Refresh;
+        Admin.OnChange += OnAdminChanged;
         Nav.LocationChanged += OnLocationChanged;
+        EnforceAdminGate();
     }
 
     private void SetMode(bool isTest) => Sessions.SetTestMode(isTest);
 
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) =>
+    private void OnAdminChanged()
+    {
+        EnforceAdminGate();
         InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        EnforceAdminGate();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void EnforceAdminGate()
+    {
+        if (!Admin.IsAdmin && IsAdminOnlyPage)
+            Nav.NavigateTo("/", replace: true);
+    }
 
     private void Refresh() => InvokeAsync(StateHasChanged);
 
@@ -78,6 +113,7 @@
     {
         Sessions.OnChange -= Refresh;
         Sessions.ModeChanged -= Refresh;
+        Admin.OnChange -= OnAdminChanged;
         Nav.LocationChanged -= OnLocationChanged;
     }
 }

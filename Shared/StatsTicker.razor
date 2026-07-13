@@ -1,0 +1,143 @@
+@inject SessionService Sessions
+@inject CourtAllocationService Allocation
+@implements IDisposable
+
+@if (_items.Count > 0)
+{
+    <div class="stats-ticker" aria-label="Session stats">
+        <div class="stats-ticker__track">
+            @foreach (var pass in Enumerable.Range(0, 2))
+            {
+                <div class="stats-ticker__pass" aria-hidden="@(pass > 0 ? "true" : null)">
+                    @foreach (var item in _items)
+                    {
+                        <span class="stats-ticker__item">@item</span>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<string> _items = new();
+
+    protected override void OnInitialized()
+    {
+        Rebuild();
+        Sessions.OnChange += OnChanged;
+        Sessions.ModeChanged += OnChanged;
+        Allocation.OnChange += OnChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(() =>
+    {
+        Rebuild();
+        StateHasChanged();
+    });
+
+    private void Rebuild()
+    {
+        var items = new List<string>();
+
+        try
+        {
+            var sessionId = Sessions.CurrentSessionId;
+            var stats = Sessions.GetSessionStats(sessionId);
+            var rankings = Sessions.GetRankings(sessionId);
+            var recent = Sessions.GetRecentGames(sessionId, 8);
+            var onCourt = Allocation.Courts.Sum(c => c.FilledCount);
+            var waiting = Allocation.Waiting.Count;
+            var session = Sessions.GetCurrentSession();
+            var sessionLabel = string.IsNullOrWhiteSpace(session.Name)
+                ? session.Date.ToString("ddd d MMM")
+                : session.Name;
+
+            items.Add($"{sessionLabel} is live");
+
+            if (stats.TotalGames > 0)
+                items.Add($"{stats.TotalGames} game{(stats.TotalGames == 1 ? "" : "s")} in the book");
+            else
+                items.Add("No games yet — first rally wins bragging rights");
+
+            if (stats.TotalPlayers > 0)
+                items.Add($"{stats.TotalPlayers} player{(stats.TotalPlayers == 1 ? "" : "s")} checked in");
+
+            if (onCourt + waiting > 0)
+                items.Add($"{onCourt} on court · {waiting} waiting");
+
+            var leader = rankings
+                .Where(r => r.Games > 0)
+                .OrderByDescending(r => r.Wins)
+                .ThenByDescending(r => r.Rating)
+                .FirstOrDefault();
+            if (leader is not null && leader.Wins > 0)
+                items.Add($"{leader.Name} leads with {leader.Wins} win{(leader.Wins == 1 ? "" : "s")}");
+
+            var hot = rankings
+                .Where(r => r.Games >= 2)
+                .OrderByDescending(r => r.WinRate)
+                .ThenByDescending(r => r.Games)
+                .FirstOrDefault();
+            if (hot is not null && hot.WinRate >= 60)
+                items.Add($"{hot.Name} is humming at {hot.WinRate:0}%");
+
+            var iron = rankings
+                .Where(r => r.Games > 0)
+                .OrderByDescending(r => r.Games)
+                .FirstOrDefault();
+            if (iron is not null && iron.Games >= 3)
+                items.Add($"{iron.Name} has played {iron.Games} — legs of steel");
+
+            var closest = recent
+                .Where(g => g.TeamAScore is int && g.TeamBScore is int)
+                .Select(g => (Game: g, Margin: Math.Abs(g.TeamAScore!.Value - g.TeamBScore!.Value)))
+                .OrderBy(x => x.Margin)
+                .ThenByDescending(x => x.Game.EndedAt)
+                .FirstOrDefault();
+            if (closest.Game is not null)
+            {
+                var g = closest.Game;
+                items.Add(closest.Margin <= 2
+                    ? $"Nail-biter: {g.TeamAScore}–{g.TeamBScore} on court {g.CourtId}"
+                    : $"Latest scoreboard: {g.TeamAScore}–{g.TeamBScore}");
+            }
+
+            var blowout = recent
+                .Where(g => g.TeamAScore is int && g.TeamBScore is int)
+                .Select(g => (Game: g, Margin: Math.Abs(g.TeamAScore!.Value - g.TeamBScore!.Value)))
+                .OrderByDescending(x => x.Margin)
+                .FirstOrDefault();
+            if (blowout.Game is not null && blowout.Margin >= 8)
+                items.Add($"Statement win: {blowout.Game.TeamAScore}–{blowout.Game.TeamBScore}");
+
+            if (stats.UnpaidCount > 0)
+                items.Add($"{stats.UnpaidCount} still owe court fees");
+            else if (stats.PaidCount > 0)
+                items.Add("Everyone's paid up — legends");
+
+            if (Allocation.Courts.Count(c => c.IsRunning) is int running && running > 0)
+                items.Add($"{running} court{(running == 1 ? "" : "s")} mid-rally");
+        }
+        catch
+        {
+            items.Add("RallyBoard — drag, drop, play");
+        }
+
+        if (items.Count == 0)
+            items.Add("Ready when you are");
+
+        // Keep the loop readable — pad if too short
+        while (items.Count > 0 && items.Count < 4)
+            items.AddRange(items.ToList());
+
+        _items = items;
+    }
+
+    public void Dispose()
+    {
+        Sessions.OnChange -= OnChanged;
+        Sessions.ModeChanged -= OnChanged;
+        Allocation.OnChange -= OnChanged;
+    }
+}

@@ -1,12 +1,12 @@
 @inject CourtAllocationService Allocation
 @implements IDisposable
 
-<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "")"
-     draggable="@(_menuOpen ? "false" : "true")"
-     @ondragstart="() => Allocation.StartDrag(Player)"
+<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "") @(Locked ? "chip--locked" : "")"
+     draggable="@(CanDrag ? "true" : "false")"
+     @ondragstart="OnDragStart"
      @ondragstart:stopPropagation
      @ondragover="@(() => { })" @ondragover:preventDefault
-     @ondragenter="() => _dragOver = true"
+     @ondragenter="() => { if (!Locked) _dragOver = true; }"
      @ondragleave="() => _dragOver = false"
      @ondrop="HandleDrop" @ondrop:preventDefault @ondrop:stopPropagation>
     @if (_menuOpen)
@@ -47,10 +47,13 @@
     [Parameter, EditorRequired] public Player Player { get; set; } = null!;
     [Parameter] public bool ShowRemove { get; set; } = true;
     [Parameter] public bool IsWaiting { get; set; }
+    [Parameter] public bool Locked { get; set; }
 
     private bool _menuOpen;
     private bool _dragOver;
     private Guid _boundPlayerId;
+
+    private bool CanDrag => !Locked && !_menuOpen;
 
     protected override void OnParametersSet()
     {
@@ -61,16 +64,27 @@
             _menuOpen = false;
             _dragOver = false;
         }
+
+        if (Locked)
+            _menuOpen = false;
+    }
+
+    private void OnDragStart()
+    {
+        if (!CanDrag) return;
+        Allocation.StartDrag(Player);
     }
 
     private void HandleDrop()
     {
         _dragOver = false;
+        if (Locked) return;
         Allocation.DropOnPlayer(Player);
     }
 
     private void ToggleMenu()
     {
+        if (Locked) return;
         if (_menuOpen)
         {
             CloseMenu();
@@ -111,10 +125,11 @@
     {
         get
         {
-            // Waiting pool: swap only with someone already on court
+            // Waiting pool: swap only with someone already on court (unlocked lineups)
             if (IsWaiting)
             {
                 return Allocation.Courts
+                    .Where(c => !c.LineupLocked)
                     .SelectMany(c => c.Slots)
                     .Where(p => p is not null && p.Id != Player.Id)
                     .Cast<Player>()
@@ -123,7 +138,7 @@
 
             var list = new List<Player>();
             list.AddRange(Allocation.Waiting);
-            foreach (var court in Allocation.Courts)
+            foreach (var court in Allocation.Courts.Where(c => !c.LineupLocked))
                 foreach (var slot in court.Slots)
                     if (slot is not null) list.Add(slot);
             return list.Where(p => p.Id != Player.Id).DistinctBy(p => p.Id);

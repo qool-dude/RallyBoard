@@ -23,6 +23,9 @@ public class Court
     public bool IsPaused => StartedAt is not null && PausedAt is not null;
     public bool GameEnded => Winner is not null;
 
+    /// <summary>True while the match timer is actively running — lineup changes are blocked.</summary>
+    public bool LineupLocked => IsRunning;
+
     /// <summary>Matchmaking explanation for the current lineup (cleared on Reset).</summary>
     public MatchmakingDecision? PendingMatchmaking { get; set; }
 

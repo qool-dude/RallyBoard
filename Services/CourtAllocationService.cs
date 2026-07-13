@@ -42,7 +42,7 @@ namespace RallyBoard.Services
             _sessions.SessionStarted += ClearSessionBoard;
             _sessions.ModeChanged += OnModeChanged;
 
-            for (int i = 1; i <= 2; i++)
+            for (int i = 1; i <= 3; i++)
                 Courts.Add(new Court { Id = i, Name = $"Court {i}" });
 
             // Load persisted players/assignments if present
@@ -343,6 +343,12 @@ namespace RallyBoard.Services
             if (_draggedPlayer is null || slotIndex < 0 || slotIndex >= court.Slots.Length)
                 return;
 
+            if (court.LineupLocked || IsPlayerOnLockedCourt(_draggedPlayer))
+            {
+                _draggedPlayer = null;
+                return;
+            }
+
             var targetPlayer = court.Slots[slotIndex];
 
             if (targetPlayer is not null && targetPlayer.Id != _draggedPlayer.Id)
@@ -361,10 +367,39 @@ namespace RallyBoard.Services
             OnChange?.Invoke();
         }
 
+        /// <summary>Places a waiting (or elsewhere) player into an empty or occupied court slot.</summary>
+        public void AssignPlayerToSlot(Court court, int slotIndex, Player player)
+        {
+            if (court is null || player is null || slotIndex < 0 || slotIndex >= court.Slots.Length)
+                return;
+
+            if (court.LineupLocked || IsPlayerOnLockedCourt(player))
+                return;
+
+            var targetPlayer = court.Slots[slotIndex];
+            if (targetPlayer is not null && targetPlayer.Id != player.Id)
+            {
+                SwapPlayers(player, targetPlayer);
+                return;
+            }
+
+            RemovePlayerFromAllLocations(player);
+            court.Slots[slotIndex] = player;
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
         public void DropOnPlayer(Player target)
         {
             if (_draggedPlayer is null || target is null || _draggedPlayer.Id == target.Id)
                 return;
+
+            if (IsPlayerOnLockedCourt(_draggedPlayer) || IsPlayerOnLockedCourt(target))
+            {
+                _draggedPlayer = null;
+                return;
+            }
 
             var dragged = _draggedPlayer;
             _draggedPlayer = null;
@@ -375,6 +410,12 @@ namespace RallyBoard.Services
         {
             if (_draggedPlayer is null)
                 return;
+
+            if (IsPlayerOnLockedCourt(_draggedPlayer))
+            {
+                _draggedPlayer = null;
+                return;
+            }
 
             // Remove from courts
             RemovePlayerFromAllLocations(_draggedPlayer);
@@ -394,6 +435,9 @@ namespace RallyBoard.Services
 
         public void DeletePlayer(Player player)
         {
+            if (IsPlayerOnLockedCourt(player))
+                return;
+
             // Remove player from courts and waiting
             RemovePlayerFromAllLocations(player);
 
@@ -430,6 +474,8 @@ namespace RallyBoard.Services
         public void SwapPlayers(Player player1, Player player2)
         {
             if (player1 is null || player2 is null) return;
+            if (IsPlayerOnLockedCourt(player1) || IsPlayerOnLockedCourt(player2))
+                return;
 
             // Find locations
             var (location1, pos1) = FindPlayerLocation(player1);
@@ -540,6 +586,7 @@ namespace RallyBoard.Services
         public void ClearCourt(Court court)
         {
             if (court is null) return;
+            if (court.LineupLocked) return;
 
             for (int i = 0; i < court.Slots.Length; i++)
             {
@@ -673,6 +720,18 @@ namespace RallyBoard.Services
                     p.WaitingSince = null;
                 }
             }
+        }
+
+        private bool IsPlayerOnLockedCourt(Player player)
+        {
+            if (player is null) return false;
+            foreach (var court in Courts)
+            {
+                if (!court.LineupLocked) continue;
+                if (court.Slots.Any(s => s?.Id == player.Id))
+                    return true;
+            }
+            return false;
         }
 
         private (string location, object? position) FindPlayerLocation(Player player)

@@ -1,0 +1,331 @@
+@page "/dashboard/matchmaking"
+@inject MatchmakingSettingsService Settings
+
+<PageTitle>RallyBoard — Pick settings</PageTitle>
+
+<section class="dashboard">
+    <div class="dashboard__head">
+        <div>
+            <h1>Pick game settings</h1>
+            <p class="dashboard__subtitle">Tune matchmaking — Apply saves to the database and takes effect on the next pick</p>
+        </div>
+        <div class="dashboard__head-actions">
+            <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
+            <a class="btn btn-ghost" href="/dashboard/picks">Picks</a>
+            <a class="btn btn-primary" href="/">Back to courts</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <p class="settings-status">@_status</p>
+    }
+
+    <section class="dashboard-panel settings-panel">
+        <div class="dashboard-panel__head">
+            <h2>Profiles</h2>
+            @if (!string.IsNullOrEmpty(Settings.ActiveProfileName))
+            {
+                <span class="dashboard-panel__badge">Active: @Settings.ActiveProfileName</span>
+            }
+        </div>
+        <div class="settings-profiles">
+            <div class="settings-profiles__save">
+                <input class="settings-profiles__name"
+                       @bind="_profileName"
+                       @bind:event="oninput"
+                       placeholder="Profile name…"
+                       aria-label="Profile name" />
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="SaveAsProfile">Save as profile</button>
+                <button type="button" class="btn btn-primary btn-sm" @onclick="SaveAndApplyProfile">Save &amp; apply</button>
+            </div>
+
+            @if (_profiles.Count == 0)
+            {
+                <p class="settings-profiles__empty">No custom profiles yet — tune settings below, name them, and save.</p>
+            }
+            else
+            {
+                <ul class="settings-profiles__list">
+                    @foreach (var profile in _profiles)
+                    {
+                        <li class="settings-profiles__item @(profile.Id == Settings.ActiveProfileId ? "is-active" : "")">
+                            <div class="settings-profiles__meta">
+                                <strong>@profile.Name</strong>
+                                <span>Updated @profile.UpdatedAt.ToLocalTime().ToString("g")</span>
+                            </div>
+                            <div class="settings-profiles__item-actions">
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => LoadProfileToForm(profile)">Load</button>
+                                <button type="button" class="btn btn-primary btn-sm" @onclick="() => ApplyProfile(profile.Id)">Apply</button>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => DeleteProfile(profile.Id)">Delete</button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </section>
+
+    <form class="settings-form" @onsubmit="Apply" @onsubmit:preventDefault>
+        <section class="dashboard-panel settings-panel">
+            <div class="dashboard-panel__head"><h2>Selection</h2></div>
+            <div class="settings-grid">
+                <label class="settings-field">
+                    <span class="settings-field__label">Ability algorithm chance</span>
+                    <span class="settings-field__hint">0 = always Balanced · 1 = always Ability · 0.5 = coin flip</span>
+                    <div class="settings-field__row">
+                        <input type="range" min="0" max="1" step="0.05" @bind="_abilityChance" @bind:event="oninput" />
+                        <span class="settings-field__value">@_abilityChance.ToString("0.00")</span>
+                    </div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Randomness</span>
+                    <span class="settings-field__hint">0 = always best lineup · higher samples among top candidates</span>
+                    <div class="settings-field__row">
+                        <input type="range" min="0" max="1" step="0.05" @bind="_randomness" @bind:event="oninput" />
+                        <span class="settings-field__value">@_randomness.ToString("0.00")</span>
+                    </div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Top player percentile</span>
+                    <span class="settings-field__hint">Fraction of the pool treated as “strong” for peer matching</span>
+                    <div class="settings-field__row">
+                        <input type="range" min="0.05" max="1" step="0.05" @bind="_topPercentile" @bind:event="oninput" />
+                        <span class="settings-field__value">@_topPercentile.ToString("0.00")</span>
+                    </div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Top cluster bonus</span>
+                    <span class="settings-field__hint">Extra score when 2+ strong players share a game</span>
+                    <div class="settings-field__row">
+                        <input type="range" min="0" max="50" step="1" @bind="_topCluster" @bind:event="oninput" />
+                        <span class="settings-field__value">@_topCluster.ToString("0")</span>
+                    </div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Recent games lookback</span>
+                    <span class="settings-field__hint">How many recent games feed mixing penalties</span>
+                    <div class="settings-field__row">
+                        <input type="range" min="1" max="20" step="1" @bind="_lookback" @bind:event="oninput" />
+                        <span class="settings-field__value">@_lookback</span>
+                    </div>
+                </label>
+            </div>
+        </section>
+
+        <div class="settings-algo-grid">
+            <section class="dashboard-panel settings-panel">
+                <div class="dashboard-panel__head">
+                    <h2>Balanced algorithm</h2>
+                    <span class="dashboard-panel__badge">Classic blend</span>
+                </div>
+                <div class="settings-grid settings-grid--weights">
+                    <label class="settings-field"><span class="settings-field__label">Waiting</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_balWaiting" @bind:event="oninput" /><span class="settings-field__value">@_balWaiting.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Mixing</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_balMixing" @bind:event="oninput" /><span class="settings-field__value">@_balMixing.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Balance</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_balBalance" @bind:event="oninput" /><span class="settings-field__value">@_balBalance.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Peer</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_balPeer" @bind:event="oninput" /><span class="settings-field__value">@_balPeer.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Homogeneity</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_balHom" @bind:event="oninput" /><span class="settings-field__value">@_balHom.ToString("0.00")</span></div></label>
+                </div>
+            </section>
+
+            <section class="dashboard-panel settings-panel">
+                <div class="dashboard-panel__head">
+                    <h2>Ability algorithm</h2>
+                    <span class="dashboard-panel__badge">Similar skill</span>
+                </div>
+                <div class="settings-grid settings-grid--weights">
+                    <label class="settings-field"><span class="settings-field__label">Waiting</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_abWaiting" @bind:event="oninput" /><span class="settings-field__value">@_abWaiting.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Mixing</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_abMixing" @bind:event="oninput" /><span class="settings-field__value">@_abMixing.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Balance</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_abBalance" @bind:event="oninput" /><span class="settings-field__value">@_abBalance.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Peer</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_abPeer" @bind:event="oninput" /><span class="settings-field__value">@_abPeer.ToString("0.00")</span></div></label>
+                    <label class="settings-field"><span class="settings-field__label">Homogeneity</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_abHom" @bind:event="oninput" /><span class="settings-field__value">@_abHom.ToString("0.00")</span></div></label>
+                </div>
+            </section>
+        </div>
+
+        <section class="dashboard-panel settings-panel">
+            <div class="dashboard-panel__head"><h2>Rating (feeds picks)</h2></div>
+            <div class="settings-grid">
+                <label class="settings-field"><span class="settings-field__label">Win rate weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_winRateW" @bind:event="oninput" /><span class="settings-field__value">@_winRateW.ToString("0.00")</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Games played weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_gamesW" @bind:event="oninput" /><span class="settings-field__value">@_gamesW.ToString("0.00")</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Closeness weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_closeW" @bind:event="oninput" /><span class="settings-field__value">@_closeW.ToString("0.00")</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Games played cap</span><div class="settings-field__row"><input type="range" min="1" max="40" step="1" @bind="_gamesCap" @bind:event="oninput" /><span class="settings-field__value">@_gamesCap</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Default rating</span><div class="settings-field__row"><input type="range" min="0" max="100" step="1" @bind="_defaultRating" @bind:event="oninput" /><span class="settings-field__value">@_defaultRating.ToString("0")</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Recent sessions window</span><div class="settings-field__row"><input type="range" min="1" max="20" step="1" @bind="_recentWindow" @bind:event="oninput" /><span class="settings-field__value">@_recentWindow</span></div></label>
+                <label class="settings-field"><span class="settings-field__label">Recent session multiplier</span><div class="settings-field__row"><input type="range" min="1" max="10" step="0.5" @bind="_recentMult" @bind:event="oninput" /><span class="settings-field__value">@_recentMult.ToString("0.0")</span></div></label>
+            </div>
+        </section>
+
+        <div class="settings-actions">
+            <button type="button" class="btn btn-ghost" @onclick="ResetDraft">Reset form to defaults</button>
+            <button type="button" class="btn btn-ghost" @onclick="ReloadLive">Reload live values</button>
+            <button type="submit" class="btn btn-primary">Apply &amp; save</button>
+        </div>
+    </form>
+</section>
+
+@code {
+    private double _abilityChance, _randomness, _topPercentile, _topCluster;
+    private int _lookback;
+    private double _balWaiting, _balMixing, _balBalance, _balPeer, _balHom;
+    private double _abWaiting, _abMixing, _abBalance, _abPeer, _abHom;
+    private double _winRateW, _gamesW, _closeW, _defaultRating, _recentMult;
+    private int _gamesCap, _recentWindow;
+    private string _status = "";
+    private string _profileName = "";
+    private List<MatchmakingProfile> _profiles = new();
+
+    protected override void OnInitialized()
+    {
+        RefreshProfiles();
+        ReloadLive();
+    }
+
+    private void RefreshProfiles() => _profiles = Settings.ListProfiles();
+
+    private void LoadFrom(MatchmakingOptions o)
+    {
+        _abilityChance = o.Selection.AbilityAlgorithmChance;
+        _randomness = o.Selection.Randomness;
+        _topPercentile = o.Selection.TopPlayerPercentile;
+        _topCluster = o.Selection.TopClusterBonus;
+        _lookback = o.Selection.RecentGamesLookback;
+
+        _balWaiting = o.Selection.Balanced.WaitingWeight;
+        _balMixing = o.Selection.Balanced.MixingWeight;
+        _balBalance = o.Selection.Balanced.BalanceWeight;
+        _balPeer = o.Selection.Balanced.PeerWeight;
+        _balHom = o.Selection.Balanced.HomogeneityWeight;
+
+        _abWaiting = o.Selection.Ability.WaitingWeight;
+        _abMixing = o.Selection.Ability.MixingWeight;
+        _abBalance = o.Selection.Ability.BalanceWeight;
+        _abPeer = o.Selection.Ability.PeerWeight;
+        _abHom = o.Selection.Ability.HomogeneityWeight;
+
+        _winRateW = o.Rating.WinRateWeight;
+        _gamesW = o.Rating.GamesPlayedWeight;
+        _closeW = o.Rating.ClosenessWeight;
+        _gamesCap = o.Rating.GamesPlayedCap;
+        _defaultRating = o.Rating.DefaultRating;
+        _recentWindow = o.Rating.RecentSessionsWindow;
+        _recentMult = o.Rating.RecentSessionMultiplier;
+    }
+
+    private MatchmakingOptions BuildDraft() => new()
+    {
+        Selection = new SelectionWeights
+        {
+            AbilityAlgorithmChance = _abilityChance,
+            Randomness = _randomness,
+            TopPlayerPercentile = _topPercentile,
+            TopClusterBonus = _topCluster,
+            RecentGamesLookback = _lookback,
+            Balanced = new AlgorithmWeights
+            {
+                WaitingWeight = _balWaiting,
+                MixingWeight = _balMixing,
+                BalanceWeight = _balBalance,
+                PeerWeight = _balPeer,
+                HomogeneityWeight = _balHom
+            },
+            Ability = new AlgorithmWeights
+            {
+                WaitingWeight = _abWaiting,
+                MixingWeight = _abMixing,
+                BalanceWeight = _abBalance,
+                PeerWeight = _abPeer,
+                HomogeneityWeight = _abHom
+            }
+        },
+        Rating = new RatingWeights
+        {
+            WinRateWeight = _winRateW,
+            GamesPlayedWeight = _gamesW,
+            ClosenessWeight = _closeW,
+            GamesPlayedCap = _gamesCap,
+            DefaultRating = _defaultRating,
+            RecentSessionsWindow = _recentWindow,
+            RecentSessionMultiplier = _recentMult
+        }
+    };
+
+    private void ReloadLive()
+    {
+        LoadFrom(Settings.GetSnapshot());
+        _profileName = Settings.ActiveProfileName ?? "";
+        _status = "";
+    }
+
+    private void ResetDraft()
+    {
+        LoadFrom(Settings.GetDefaults());
+        _profileName = "";
+        _status = "Form reset to appsettings defaults — click Apply & save to persist.";
+    }
+
+    private void Apply()
+    {
+        Settings.Apply(BuildDraft());
+        LoadFrom(Settings.GetSnapshot());
+        RefreshProfiles();
+        _status = "Applied — next Pick Game / Shuffle uses these settings. Saved for future restarts.";
+    }
+
+    private void SaveAsProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_profileName))
+        {
+            _status = "Enter a profile name first.";
+            return;
+        }
+
+        var saved = Settings.SaveProfile(_profileName, BuildDraft());
+        RefreshProfiles();
+        _profileName = saved.Name;
+        _status = $"Saved profile “{saved.Name}”. Apply it when you want it live.";
+    }
+
+    private void SaveAndApplyProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_profileName))
+        {
+            _status = "Enter a profile name first.";
+            return;
+        }
+
+        var draft = BuildDraft();
+        var saved = Settings.SaveProfile(_profileName, draft);
+        Settings.Apply(draft, asProfileId: saved.Id);
+        LoadFrom(Settings.GetSnapshot());
+        RefreshProfiles();
+        _profileName = saved.Name;
+        _status = $"Saved and applied “{saved.Name}” — next picks use this profile.";
+    }
+
+    private void LoadProfileToForm(MatchmakingProfile profile)
+    {
+        LoadFrom(profile.Options);
+        _profileName = profile.Name;
+        _status = $"Loaded “{profile.Name}” into the form — Apply & save (or Save & apply) to make it live.";
+    }
+
+    private void ApplyProfile(Guid profileId)
+    {
+        Settings.ApplyProfile(profileId);
+        LoadFrom(Settings.GetSnapshot());
+        RefreshProfiles();
+        _profileName = Settings.ActiveProfileName ?? "";
+        _status = $"Applied “{_profileName}” — next picks use this profile.";
+    }
+
+    private void DeleteProfile(Guid profileId)
+    {
+        var name = _profiles.FirstOrDefault(p => p.Id == profileId)?.Name ?? "profile";
+        Settings.DeleteProfile(profileId);
+        RefreshProfiles();
+        if (Settings.ActiveProfileId is null && _profileName.Equals(name, StringComparison.OrdinalIgnoreCase))
+            _profileName = "";
+        _status = $"Deleted “{name}”.";
+    }
+}
