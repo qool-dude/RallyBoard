@@ -8,7 +8,12 @@
      @ondrop="HandleDrop" @ondrop:preventDefault>
     @if (Player is not null)
     {
-        <PlayerChip @key="Player.Id" Player="Player" ShowRemove="ShowRemove && !Court.LineupLocked" Locked="Court.LineupLocked" />
+        <PlayerChip @key="Player.Id"
+                    Player="Player"
+                    ShowRemove="ShowRemove && !Court.LineupLocked"
+                    Locked="Court.LineupLocked"
+                    AllowRemove="AllowRemove"
+                    SwapCandidates="SwapCandidates" />
     }
     else if (Court.LineupLocked)
     {
@@ -55,12 +60,14 @@
     [Parameter, EditorRequired] public Court Court { get; set; } = null!;
     [Parameter, EditorRequired] public int Index { get; set; }
     [Parameter] public bool ShowRemove { get; set; } = true;
+    [Parameter] public bool AllowRemove { get; set; } = true;
+    [Parameter] public IEnumerable<Player>? SwapCandidates { get; set; }
 
     private bool _dragOver;
     private bool _pickerOpen;
 
     private List<Player> WaitingPlayers =>
-        Allocation.Waiting.OrderBy(p => p.Name).ToList();
+        Allocation.Waiting.Where(p => !p.IsPaused).OrderBy(p => p.Name).ToList();
 
     protected override void OnInitialized()
     {

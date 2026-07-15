@@ -1,12 +1,12 @@
 @inject CourtAllocationService Allocation
 @implements IDisposable
 
-<div class="chip chip--@(Player.ColorIndex % 6) @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "") @(Locked ? "chip--locked" : "")"
+<div class="chip chip--@(Player.ColorIndex % 6) @(IsWaiting ? "chip--waiting" : "") @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "") @(Locked ? "chip--locked" : "") @(Player.IsPaused ? "chip--paused" : "")"
      draggable="@(CanDrag ? "true" : "false")"
      @ondragstart="OnDragStart"
      @ondragstart:stopPropagation
      @ondragover="@(() => { })" @ondragover:preventDefault
-     @ondragenter="() => { if (!Locked) _dragOver = true; }"
+     @ondragenter="() => { if (!Locked && !Player.IsPaused) _dragOver = true; }"
      @ondragleave="() => _dragOver = false"
      @ondrop="HandleDrop" @ondrop:preventDefault @ondrop:stopPropagation>
     @if (_menuOpen)
@@ -21,39 +21,100 @@
         <button class="chip__pause-btn" title="@(Player.IsPaused ? "Resume" : "Pause")" @onclick="TogglePause" @onclick:stopPropagation>
             @(Player.IsPaused ? "▶" : "⏸")
         </button>
-        <button class="chip__remove" title="Remove player" @onclick="() => Remove()" @onclick:stopPropagation>&times;</button>
+        <button class="chip__remove" title="Remove player" aria-label="Remove @Player.Name" @onclick="AskRemove" @onclick:stopPropagation>&times;</button>
     }
 
-    @if (ShowRemove)
+    @if (ShowRemove && !Player.IsPaused)
     {
         <div class="chip__actions">
             <button class="chip__menu-btn" title="Actions" @onclick="ToggleMenu" @onclick:stopPropagation>▾</button>
             @if (_menuOpen)
             {
                 <div class="chip__menu" @onclick:stopPropagation>
-                    @foreach (var other in OtherPlayers)
+                    @if (UseGroupedSwapMenu)
                     {
-                        <button class="chip__menu-item" @onclick="() => SwapWith(other)">@other.Name</button>
+                        var courtPlayers = PreferredSwapPlayers.ToList();
+                        var remainingPlayers = OtherPlayers
+                            .Where(p => courtPlayers.All(c => c.Id != p.Id))
+                            .ToList();
+
+                        @foreach (var other in courtPlayers)
+                        {
+                            <button class="chip__menu-item" @onclick="() => SwapWith(other)">@other.Name</button>
+                        }
+                        @if (courtPlayers.Count > 0 && remainingPlayers.Count > 0)
+                        {
+                            <hr />
+                        }
+                        @foreach (var other in remainingPlayers)
+                        {
+                            <button class="chip__menu-item" @onclick="() => SwapWith(other)">@other.Name</button>
+                        }
                     }
-                    <hr />
-                    <button class="chip__menu-item" @onclick="() => Remove()">Remove</button>
+                    else
+                    {
+                        @foreach (var other in OtherPlayers)
+                        {
+                            <button class="chip__menu-item" @onclick="() => SwapWith(other)">@other.Name</button>
+                        }
+                    }
+                    @if (AllowRemove)
+                    {
+                        <hr />
+                        <button class="chip__menu-item" @onclick="() => Remove()">Remove</button>
+                    }
                 </div>
             }
         </div>
     }
 </div>
 
+@if (_confirmRemove)
+{
+    <div class="modal-backdrop" @onclick="CancelRemove">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="alertdialog" aria-modal="true" aria-labelledby="remove-player-title">
+            <div class="modal-panel__head">
+                <h3 id="remove-player-title">Remove @Player.Name?</h3>
+                <button type="button" class="modal-panel__close" @onclick="CancelRemove" aria-label="Cancel">&times;</button>
+            </div>
+            <p class="modal-panel__hint">@Player.Name will be removed from the waiting pool. They can be added again later.</p>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-ghost" @onclick="CancelRemove">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="ConfirmRemove">Remove player</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter, EditorRequired] public Player Player { get; set; } = null!;
     [Parameter] public bool ShowRemove { get; set; } = true;
     [Parameter] public bool IsWaiting { get; set; }
     [Parameter] public bool Locked { get; set; }
+    [Parameter] public bool AllowRemove { get; set; } = true;
+    [Parameter] public IEnumerable<Player>? SwapCandidates { get; set; }
+    [Parameter] public IEnumerable<Player>? PrimarySwapCandidates { get; set; }
+    [Parameter] public EventCallback<Player> DragStarted { get; set; }
+    [Parameter] public EventCallback<Player> DroppedOn { get; set; }
+    [Parameter] public EventCallback<Player> SwapRequested { get; set; }
 
     private bool _menuOpen;
     private bool _dragOver;
+    private bool _confirmRemove;
     private Guid _boundPlayerId;
 
-    private bool CanDrag => !Locked && !_menuOpen;
+    private bool CanDrag => !Locked && !Player.IsPaused && !_menuOpen && !_confirmRemove;
+    private bool UseGroupedSwapMenu =>
+        PrimarySwapCandidates is not null || (!IsWaiting && SwapCandidates is null);
+
+    private IEnumerable<Player> PreferredSwapPlayers =>
+        PrimarySwapCandidates?.Where(p => p.Id != Player.Id).DistinctBy(p => p.Id)
+        ?? Allocation.Courts
+                .FirstOrDefault(c => c.Slots.Any(p => p?.Id == Player.Id))
+                ?.Slots
+                .OfType<Player>()
+                .Where(p => p.Id != Player.Id)
+        ?? Enumerable.Empty<Player>();
 
     protected override void OnParametersSet()
     {
@@ -63,28 +124,35 @@
             _boundPlayerId = Player.Id;
             _menuOpen = false;
             _dragOver = false;
+            _confirmRemove = false;
         }
 
-        if (Locked)
+        if (Locked || Player.IsPaused)
             _menuOpen = false;
     }
 
-    private void OnDragStart()
+    private async Task OnDragStart()
     {
         if (!CanDrag) return;
-        Allocation.StartDrag(Player);
+        if (DragStarted.HasDelegate)
+            await DragStarted.InvokeAsync(Player);
+        else
+            Allocation.StartDrag(Player);
     }
 
-    private void HandleDrop()
+    private async Task HandleDrop()
     {
         _dragOver = false;
-        if (Locked) return;
-        Allocation.DropOnPlayer(Player);
+        if (Locked || Player.IsPaused) return;
+        if (DroppedOn.HasDelegate)
+            await DroppedOn.InvokeAsync(Player);
+        else
+            Allocation.DropOnPlayer(Player);
     }
 
     private void ToggleMenu()
     {
-        if (Locked) return;
+        if (Locked || Player.IsPaused) return;
         if (_menuOpen)
         {
             CloseMenu();
@@ -107,6 +175,16 @@
         Allocation.DeletePlayer(Player);
     }
 
+    private void AskRemove() => _confirmRemove = true;
+
+    private void CancelRemove() => _confirmRemove = false;
+
+    private void ConfirmRemove()
+    {
+        _confirmRemove = false;
+        Remove();
+    }
+
     private void TogglePause()
     {
         Allocation.TogglePause(Player);
@@ -125,6 +203,13 @@
     {
         get
         {
+            if (SwapCandidates is not null)
+            {
+                return SwapCandidates
+                    .Where(p => p.Id != Player.Id)
+                    .DistinctBy(p => p.Id);
+            }
+
             // Waiting pool: swap only with someone already on court (unlocked lineups)
             if (IsWaiting)
             {
@@ -137,7 +222,7 @@
             }
 
             var list = new List<Player>();
-            list.AddRange(Allocation.Waiting);
+            list.AddRange(Allocation.Waiting.Where(p => !p.IsPaused));
             foreach (var court in Allocation.Courts.Where(c => !c.LineupLocked))
                 foreach (var slot in court.Slots)
                     if (slot is not null) list.Add(slot);
@@ -145,10 +230,13 @@
         }
     }
 
-    private void SwapWith(Player other)
+    private async Task SwapWith(Player other)
     {
         CloseMenu();
-        Allocation.SwapPlayers(Player, other);
+        if (SwapRequested.HasDelegate)
+            await SwapRequested.InvokeAsync(other);
+        else
+            Allocation.SwapPlayers(Player, other);
     }
 
     protected override void OnInitialized()

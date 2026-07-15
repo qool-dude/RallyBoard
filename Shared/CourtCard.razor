@@ -1,10 +1,17 @@
 @implements IDisposable
 @inject CourtAllocationService Allocation
+@inject AdminService Admin
 
 <div class="court @(Court.IsFull ? "court--full" : "") @(Court.IsRunning ? "court--live" : "") @(Court.IsPaused ? "court--paused" : "")">
     <div class="court__head">
         <h3>@Court.Name</h3>
         <span class="court__count">@Court.FilledCount/4</span>
+        @if (Admin.IsAdmin && Court.FilledCount > 0 && OtherCourts.Count > 0)
+        {
+            <button type="button" class="btn-quiet court__move" title="Move this match to another court" @onclick="OpenMoveCourt">
+                Move
+            </button>
+        }
         @if (Court.FilledCount > 0 && !Court.LineupLocked)
         {
             <button class="icon-btn court__clear" title="Clear court" @onclick="AskClearCourt">&#8635;</button>
@@ -43,6 +50,33 @@
     </div>
 </div>
 
+@if (_showMoveCourt)
+{
+    <div class="modal-backdrop" @onclick="CloseMoveCourt">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="move-court-title">
+            <div class="modal-panel__head">
+                <h3 id="move-court-title">Move @Court.Name</h3>
+                <button type="button" class="modal-panel__close" @onclick="CloseMoveCourt" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-panel__hint">
+                Choose the physical court this match belongs on. If that court contains players, the two courts will swap.
+            </p>
+            <div class="move-court-list">
+                @foreach (var destination in OtherCourts)
+                {
+                    <button type="button" class="move-court-list__item" @onclick="() => MoveToCourt(destination)">
+                        <span>@destination.Name</span>
+                        <small>@(destination.FilledCount == 0 ? "Empty — move here" : $"{destination.FilledCount}/4 players — swap courts")</small>
+                    </button>
+                }
+            </div>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-ghost" @onclick="CloseMoveCourt">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_confirmClear)
 {
     <div class="modal-backdrop" @onclick="CancelClearCourt">
@@ -55,6 +89,29 @@
             <div class="modal-panel__actions">
                 <button type="button" class="btn btn-ghost" @onclick="CancelClearCourt">Cancel</button>
                 <button type="button" class="btn btn-primary" @onclick="ConfirmClearCourt">Clear court</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showNotEnoughPlayers)
+{
+    <div class="modal-backdrop" @onclick="CloseNotEnoughPlayers">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="alertdialog" aria-modal="true" aria-labelledby="not-enough-players-title">
+            <div class="modal-panel__head">
+                <h3 id="not-enough-players-title">Not enough players</h3>
+                <button type="button" class="modal-panel__close" @onclick="CloseNotEnoughPlayers" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-panel__hint">
+                Pick Game needs 4 available players. There @(_availablePlayerCount == 1 ? "is" : "are")
+                @_availablePlayerCount available right now.
+                @if (_pausedPlayerCount > 0)
+                {
+                    <span>@_pausedPlayerCount paused player@(_pausedPlayerCount == 1 ? " is" : "s are") not eligible.</span>
+                }
+            </p>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-primary" @onclick="CloseNotEnoughPlayers">OK</button>
             </div>
         </div>
     </div>
@@ -74,11 +131,19 @@
     private System.Threading.Timer? _timer;
     private bool _showEndGame;
     private bool _confirmClear;
+    private bool _showMoveCourt;
+    private bool _showNotEnoughPlayers;
+    private bool _resumeIfEndGameCancelled;
+    private int _availablePlayerCount;
+    private int _pausedPlayerCount;
     private MatchmakingPickResult? _pendingPick;
     EndGameModal popup = null!;
 
     private string Elapsed =>
         FormatElapsed(Court.GetElapsedTime());
+
+    private List<Court> OtherCourts =>
+        Allocation.Courts.Where(c => c.Id != Court.Id).OrderBy(c => c.Id).ToList();
 
     private static string FormatElapsed(TimeSpan ts)
     {
@@ -102,14 +167,25 @@
     {
         var pick = Allocation.ProposePickGame();
         if (pick is null)
+        {
+            _availablePlayerCount = Allocation.GetAvailableWaitingPlayers().Count;
+            _pausedPlayerCount = Allocation.Waiting.Count(p => p.IsPaused);
+            _showNotEnoughPlayers = true;
             return;
+        }
 
         _pendingPick = pick;
         OpenNextGame();
     }
 
+    private void CloseNotEnoughPlayers() => _showNotEnoughPlayers = false;
+
     private void OpenEndGame()
     {
+        _resumeIfEndGameCancelled = Court.IsRunning;
+        if (_resumeIfEndGameCancelled)
+            Allocation.ToggleTimer(Court);
+
         _pendingPick = null;
         _showEndGame = true;
         popup.ResetForm();
@@ -123,6 +199,21 @@
     }
 
     private void ToggleTimer() => Allocation.ToggleTimer(Court);
+
+    private void OpenMoveCourt()
+    {
+        if (!Admin.IsAdmin) return;
+        _showMoveCourt = true;
+    }
+
+    private void CloseMoveCourt() => _showMoveCourt = false;
+
+    private void MoveToCourt(Court destination)
+    {
+        if (!Admin.IsAdmin) return;
+        _showMoveCourt = false;
+        Allocation.MoveCourt(Court, destination);
+    }
 
     private void AskClearCourt() => _confirmClear = true;
 
@@ -139,10 +230,16 @@
         // Cancel: discard draft, leave court/waiting unchanged
         _pendingPick = null;
         _showEndGame = false;
+
+        if (_resumeIfEndGameCancelled && Court.IsPaused)
+            Allocation.ToggleTimer(Court);
+
+        _resumeIfEndGameCancelled = false;
     }
 
     private void HandleEndGame(EndGameResult result)
     {
+        _resumeIfEndGameCancelled = false;
         Allocation.EndGame(Court, result.Winner, result.TeamAScore, result.TeamBScore);
         _pendingPick = Allocation.ProposePickGame();
         OpenNextGame();
@@ -151,6 +248,7 @@
     private void HandleWaitforPlayers()
     {
         // Discard draft; court already cleared if coming from EndGame
+        _resumeIfEndGameCancelled = false;
         _pendingPick = null;
         if (Court.FilledCount > 0)
             Allocation.ClearCourt(Court);
@@ -159,6 +257,7 @@
 
     private void HandleAccept()
     {
+        _resumeIfEndGameCancelled = false;
         if (_pendingPick is not null)
             Allocation.ApplyPickGame(Court, _pendingPick, startTimer: true);
         else if (Court.FilledCount >= 2 && !Court.IsRunning)

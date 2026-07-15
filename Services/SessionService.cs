@@ -60,7 +60,6 @@ public class SessionService
     public Guid GetOrCreateCurrentSessionId()
     {
         using var db = _dbFactory.CreateDbContext();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var active = db.Sessions
             .Where(s => s.EndedAt == null && s.IsTest == IsTestMode)
@@ -68,22 +67,17 @@ public class SessionService
             .FirstOrDefault();
 
         if (active is not null)
-        {
-            if (active.Date < today)
-            {
-                active.EndedAt = DateTime.UtcNow;
-                db.SaveChanges();
-            }
-            else
-            {
-                return active.Id;
-            }
-        }
+            return active.Id;
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         return CreateSession(db, DefaultSessionName(today), IsTestMode).Id;
     }
 
-    public void EndCurrentSession(string nextSessionName)
+    /// <summary>
+    /// Ends the current session and creates a new one. Sessions remain active
+    /// across calendar days until this is called explicitly.
+    /// </summary>
+    public Guid CreateNewSession(string name)
     {
         using var db = _dbFactory.CreateDbContext();
         var session = db.Sessions.Find(CurrentSessionId);
@@ -93,15 +87,60 @@ public class SessionService
             db.SaveChanges();
         }
 
-        var name = string.IsNullOrWhiteSpace(nextSessionName)
+        var sessionName = string.IsNullOrWhiteSpace(name)
             ? DefaultSessionName(DateOnly.FromDateTime(DateTime.UtcNow))
-            : nextSessionName.Trim();
+            : name.Trim();
 
-        var newSession = CreateSession(db, name, IsTestMode);
+        var newSession = CreateSession(db, sessionName, IsTestMode);
         _currentSessionId = newSession.Id;
 
         SessionStarted?.Invoke();
         OnChange?.Invoke();
+        return newSession.Id;
+    }
+
+    public void EndCurrentSession(string nextSessionName) =>
+        CreateNewSession(nextSessionName);
+
+    /// <summary>
+    /// Deletes a session and all related attendance, games, and pick logs.
+    /// If the current session is deleted, another active session is selected;
+    /// when none exists, a blank replacement is created to keep the board usable.
+    /// </summary>
+    public Guid DeleteSession(Guid sessionId)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var session = db.Sessions.FirstOrDefault(s =>
+            s.Id == sessionId && s.IsTest == IsTestMode);
+
+        if (session is null)
+            return CurrentSessionId;
+
+        var deletingCurrent = session.Id == CurrentSessionId;
+        db.Sessions.Remove(session);
+        db.SaveChanges();
+
+        if (!deletingCurrent)
+        {
+            OnChange?.Invoke();
+            return CurrentSessionId;
+        }
+
+        var replacement = db.Sessions
+            .Where(s => s.IsTest == IsTestMode && s.EndedAt == null)
+            .OrderByDescending(s => s.StartedAt)
+            .FirstOrDefault();
+
+        if (replacement is null)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            replacement = CreateSession(db, DefaultSessionName(today), IsTestMode);
+        }
+
+        _currentSessionId = replacement.Id;
+        SessionStarted?.Invoke();
+        OnChange?.Invoke();
+        return replacement.Id;
     }
 
     public void UpdateSessionName(Guid sessionId, string name)

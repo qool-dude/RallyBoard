@@ -99,6 +99,17 @@ public class MatchmakingService
         if (waiting.Count < 4)
             return null;
 
+        using var historyDb = _dbFactory.CreateDbContext();
+        var playedPlayerIds = historyDb.GamePlayers
+            .Where(gp => gp.Game.SessionId == sessionId)
+            .Select(gp => gp.PlayerId)
+            .Distinct()
+            .ToHashSet();
+        var firstGamePlayerIds = waiting
+            .Where(p => !playedPlayerIds.Contains(p.Id))
+            .Select(p => p.Id)
+            .ToHashSet();
+
         var ratings = GetRatings(isTest);
         var recentPairs = GetRecentPairCounts(sessionId, Options.Selection.RecentGamesLookback);
         var usedFoursomes = GetSessionFoursomeKeys(sessionId);
@@ -156,9 +167,19 @@ public class MatchmakingService
         if (candidates.Count == 0)
             return null;
 
+        // Anyone who has not yet played this session gets priority. If there
+        // are four or more, pick entirely from that group; otherwise every
+        // first-game player is guaranteed a place in the next lineup.
+        var requiredFirstGamePlayers = Math.Min(4, firstGamePlayerIds.Count);
+        var priorityCandidates = requiredFirstGamePlayers == 0
+            ? candidates
+            : candidates
+                .Where(c => c.Slots.Count(p => firstGamePlayerIds.Contains(p.Id)) == requiredFirstGamePlayers)
+                .ToList();
+
         // Prefer never-before-seen foursomes this session; only reuse if nothing else left
-        var fresh = candidates.Where(c => !c.IsRepeat).ToList();
-        var poolToUse = fresh.Count > 0 ? fresh : candidates;
+        var fresh = priorityCandidates.Where(c => !c.IsRepeat).ToList();
+        var poolToUse = fresh.Count > 0 ? fresh : priorityCandidates;
         var forcedRepeat = fresh.Count == 0 && usedFoursomes.Count > 0;
 
         poolToUse.Sort((a, b) => b.Score.CompareTo(a.Score));
@@ -255,7 +276,7 @@ public class MatchmakingService
             Alternatives = alternatives,
             DominantFactor = dominant,
             Summary = BuildSummary(
-                chosen, chosenIndex, poolToUse.Count, candidates.Count, overallRank,
+                chosen, chosenIndex, poolToUse.Count, priorityCandidates.Count, overallRank,
                 algorithm, dominant, usedRandomness, forcedRepeat, chosen.IsRepeat,
                 chosenSnapshots, wWait, wMix, wBal, wPeer, wHom, weightSum)
         };

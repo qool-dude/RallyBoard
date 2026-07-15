@@ -12,22 +12,7 @@
             <p class="dashboard__subtitle">Rankings, attendance, and game history</p>
         </div>
         <div class="dashboard__head-actions">
-            @if (_selectedSessionId == Sessions.CurrentSessionId && !_isAllSessions)
-            {
-                @if (_showEndSession)
-                {
-                    <form class="end-session-form" @onsubmit="ConfirmEndSession" @onsubmit:preventDefault>
-                        <label class="end-session-form__label" for="next-session-name">Next session</label>
-                        <input id="next-session-name" class="end-session-form__input" @bind="_nextSessionName" placeholder="Session name…" />
-                        <button type="submit" class="btn btn-primary btn-sm">Start</button>
-                        <button type="button" class="btn btn-ghost btn-sm" @onclick="() => _showEndSession = false">Cancel</button>
-                    </form>
-                }
-                else
-                {
-                    <button class="btn btn-ghost" @onclick="ShowEndSession">End session</button>
-                }
-            }
+            <button class="btn btn-ghost" @onclick="OpenSessionManager">Manage sessions</button>
             <a class="btn btn-ghost" href="/dashboard/picks">Picks</a>
             <a class="btn btn-ghost" href="/dashboard/matchmaking">Pick settings</a>
             <a class="btn btn-primary" href="/">Back to courts</a>
@@ -36,32 +21,17 @@
 
     <div class="dashboard__session-bar">
         <label class="dashboard__label" for="session-select">Session</label>
-        @if (_editingName && _selectedSessionId is Guid)
-        {
-            <form class="session-name-form" @onsubmit="SaveSessionName" @onsubmit:preventDefault>
-                <input class="session-name-form__input" @bind="_sessionNameEdit" @bind:event="oninput" aria-label="Session name" />
-                <button type="submit" class="btn btn-primary btn-sm">Save</button>
-                <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditName">Cancel</button>
-            </form>
-        }
-        else
-        {
-            <select id="session-select" class="dashboard__select" @bind="_selectedKey" @bind:after="LoadData">
-                <option value="@AllSessionsKey">All sessions</option>
-                @foreach (var session in _sessions)
-                {
-                    <option value="@session.Id.ToString()">
-                        @(string.IsNullOrWhiteSpace(session.Name) ? session.Date.ToString("ddd d MMM yyyy") : session.Name)
-                        @(session.IsActive ? " (active)" : "")
-                        — @session.GameCount games, @session.PlayerCount players
-                    </option>
-                }
-            </select>
-            @if (!_isAllSessions)
+        <select id="session-select" class="dashboard__select" @bind="_selectedKey" @bind:after="LoadData">
+            <option value="@AllSessionsKey">All sessions</option>
+            @foreach (var session in _sessions)
             {
-                <button type="button" class="btn btn-ghost btn-sm" @onclick="StartEditName">Rename</button>
+                <option value="@session.Id.ToString()">
+                    @(string.IsNullOrWhiteSpace(session.Name) ? session.Date.ToString("ddd d MMM yyyy") : session.Name)
+                    @(session.IsActive ? " (active)" : "")
+                    — @session.GameCount games, @session.PlayerCount players
+                </option>
             }
-        }
+        </select>
     </div>
 
     @if (_stats is not null)
@@ -120,10 +90,6 @@
                                 <th>Close</th>
                                 <th>Pts +</th>
                                 <th>Pts −</th>
-                                @if (_isCurrentSession)
-                                {
-                                    <th>Paid</th>
-                                }
                             </tr>
                         </thead>
                         <tbody>
@@ -142,16 +108,6 @@
                                     <td>@row.Closeness.ToString("0.#")</td>
                                     <td>@row.PointsFor</td>
                                     <td>@row.PointsAgainst</td>
-                                    @if (_isCurrentSession)
-                                    {
-                                        <td>
-                                            <label class="paid-check">
-                                                <input type="checkbox"
-                                                       checked="@row.HasPaid"
-                                                       @onchange="e => TogglePaid(row.PlayerId, (bool)(e.Value ?? false))" />
-                                            </label>
-                                        </td>
-                                    }
                                 </tr>
                             }
                         </tbody>
@@ -179,7 +135,19 @@
                     @foreach (var row in _rankings.OrderBy(r => r.Name))
                     {
                         <div class="attendance-row attendance-row--present">
-                            <span class="attendance-row__name">@row.Name</span>
+                            @if (_editingPlayerId == row.PlayerId)
+                            {
+                                <form class="attendance-row__rename" @onsubmit="SavePlayerName" @onsubmit:preventDefault>
+                                    <input class="attendance-row__name-input" @bind="_playerNameEdit" @bind:event="oninput" aria-label="Player name" />
+                                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditPlayer">Cancel</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="attendance-row__name">@row.Name</span>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => StartEditPlayer(row.PlayerId, row.Name)">Rename</button>
+                            }
                         </div>
                     }
                     @if (_rankings.Count == 0)
@@ -190,18 +158,38 @@
             }
             else if (_isCurrentSession)
             {
-                <p class="dashboard__hint">Tick players who attended tonight. Paid status is in the rankings table.</p>
+                <p class="dashboard__hint">Tick players who attended tonight and record their payment status.</p>
                 <div class="attendance-list">
                     @foreach (var player in _allPlayers)
                     {
                         var present = _attendeeIds.Contains(player.Id);
-                        <label class="attendance-row @(present ? "attendance-row--present" : "")">
+                        var ranking = _rankings.FirstOrDefault(r => r.PlayerId == player.Id);
+                        <div class="attendance-row @(present ? "attendance-row--present" : "")">
                             <input type="checkbox"
                                    checked="@present"
                                    @onchange="e => ToggleAttendance(player.Id, (bool)(e.Value ?? false))" />
                             <span class="attendance-row__avatar chip--@(player.ColorIndex % 6)">@player.Initials</span>
-                            <span class="attendance-row__name">@player.Name</span>
-                        </label>
+                            @if (_editingPlayerId == player.Id)
+                            {
+                                <form class="attendance-row__rename" @onsubmit="SavePlayerName" @onsubmit:preventDefault>
+                                    <input class="attendance-row__name-input" @bind="_playerNameEdit" @bind:event="oninput" aria-label="Player name" />
+                                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditPlayer">Cancel</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="attendance-row__name">@player.Name</span>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => StartEditPlayer(player.Id, player.Name)">Rename</button>
+                            }
+                            <label class="attendance-row__paid-check">
+                                <input type="checkbox"
+                                       checked="@(ranking?.HasPaid ?? false)"
+                                       disabled="@(!present)"
+                                       @onchange="e => TogglePaid(player.Id, (bool)(e.Value ?? false))" />
+                                <span>Paid</span>
+                            </label>
+                        </div>
                     }
                 </div>
             }
@@ -211,11 +199,25 @@
                     @foreach (var row in _rankings.OrderBy(r => r.Name))
                     {
                         <div class="attendance-row attendance-row--present">
-                            <span class="attendance-row__name">@row.Name</span>
-                            @if (row.HasPaid)
+                            @if (_editingPlayerId == row.PlayerId)
                             {
-                                <span class="attendance-row__paid">Paid</span>
+                                <form class="attendance-row__rename" @onsubmit="SavePlayerName" @onsubmit:preventDefault>
+                                    <input class="attendance-row__name-input" @bind="_playerNameEdit" @bind:event="oninput" aria-label="Player name" />
+                                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditPlayer">Cancel</button>
+                                </form>
                             }
+                            else
+                            {
+                                <span class="attendance-row__name">@row.Name</span>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => StartEditPlayer(row.PlayerId, row.Name)">Rename</button>
+                            }
+                            <label class="attendance-row__paid-check">
+                                <input type="checkbox"
+                                       checked="@row.HasPaid"
+                                       @onchange="e => TogglePaid(row.PlayerId, (bool)(e.Value ?? false))" />
+                                <span>Paid</span>
+                            </label>
                         </div>
                     }
                     @if (_rankings.Count == 0)
@@ -268,6 +270,88 @@
     </section>
 </section>
 
+@if (_showSessionManager)
+{
+    <div class="modal-backdrop" @onclick="CloseSessionManager">
+        <div class="modal-panel session-manager-modal" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="session-manager-title">
+            <div class="modal-panel__head">
+                <h3 id="session-manager-title">Manage sessions</h3>
+                <button type="button" class="modal-panel__close" @onclick="CloseSessionManager" aria-label="Close">&times;</button>
+            </div>
+
+            <div class="session-manager__list">
+                @foreach (var session in _sessions)
+                {
+                    <div class="session-manager__item">
+                        @if (_editingSessionId == session.Id)
+                        {
+                            <form class="session-manager__edit" @onsubmit="SaveSessionName" @onsubmit:preventDefault>
+                                <input class="session-name-form__input" @bind="_sessionNameEdit" @bind:event="oninput" aria-label="Session name" />
+                                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="CancelEditName">Cancel</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <div class="session-manager__meta">
+                                <strong>
+                                    @(string.IsNullOrWhiteSpace(session.Name) ? session.Date.ToString("ddd d MMM yyyy") : session.Name)
+                                    @if (session.IsActive)
+                                    {
+                                        <span class="session-manager__active">Active</span>
+                                    }
+                                </strong>
+                                <span>@session.Date.ToString("ddd d MMM yyyy") · @session.GameCount games · @session.PlayerCount players</span>
+                            </div>
+                            <div class="session-manager__actions">
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => StartEditName(session.Id)">Edit</button>
+                                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => AskDeleteSession(session.Id)">Delete</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <form class="session-manager__create" @onsubmit="ConfirmCreateSession" @onsubmit:preventDefault>
+                <label class="end-session-form__label" for="new-session-name">Add new session</label>
+                <div class="session-manager__create-controls">
+                    <input id="new-session-name" class="end-session-form__input" @bind="_newSessionName" placeholder="Session name…" />
+                    <button type="submit" class="btn btn-primary btn-sm">Add session</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (_confirmDeleteSession && _sessionPendingDeleteId is Guid deleteSessionId)
+{
+    var session = _sessions.FirstOrDefault(s => s.Id == deleteSessionId);
+    var displayName = session is null || string.IsNullOrWhiteSpace(session.Name)
+        ? session?.Date.ToString("ddd d MMM yyyy") ?? "this session"
+        : session.Name;
+
+    <div class="modal-backdrop" @onclick="CancelDeleteSession">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="alertdialog" aria-modal="true" aria-labelledby="delete-session-title">
+            <div class="modal-panel__head">
+                <h3 id="delete-session-title">Delete @displayName?</h3>
+                <button type="button" class="modal-panel__close" @onclick="CancelDeleteSession" aria-label="Cancel">&times;</button>
+            </div>
+            <p class="modal-panel__hint">
+                This permanently deletes the session, its attendance, @session?.GameCount game@(session?.GameCount == 1 ? "" : "s"),
+                and associated pick history.
+            </p>
+            @if (deleteSessionId == Sessions.CurrentSessionId)
+            {
+                <p class="modal-panel__hint">This is the current session. RallyBoard will switch to another active session, or create a blank replacement if none exists.</p>
+            }
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-ghost" @onclick="CancelDeleteSession">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="ConfirmDeleteSession">Delete session</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private const string AllSessionsKey = "all";
 
@@ -281,10 +365,14 @@
     private Guid? _selectedSessionId;
     private bool _isCurrentSession;
     private bool _isAllSessions;
-    private bool _showEndSession;
-    private string _nextSessionName = "";
-    private bool _editingName;
+    private bool _showSessionManager;
+    private string _newSessionName = "";
+    private bool _confirmDeleteSession;
+    private Guid? _sessionPendingDeleteId;
+    private Guid? _editingSessionId;
     private string _sessionNameEdit = "";
+    private Guid? _editingPlayerId;
+    private string _playerNameEdit = "";
 
     protected override void OnInitialized()
     {
@@ -297,8 +385,11 @@
     private void OnModeChanged() => InvokeAsync(() =>
     {
         _selectedKey = Sessions.CurrentSessionId.ToString();
-        _showEndSession = false;
-        _editingName = false;
+        _showSessionManager = false;
+        _confirmDeleteSession = false;
+        _sessionPendingDeleteId = null;
+        _editingSessionId = null;
+        _editingPlayerId = null;
         LoadData();
         StateHasChanged();
     });
@@ -317,9 +408,6 @@
             _selectedKey = _selectedSessionId.Value.ToString();
         }
 
-        if (_isAllSessions)
-            _editingName = false;
-
         _isCurrentSession = !_isAllSessions && _selectedSessionId == Sessions.CurrentSessionId;
         _rankings = Sessions.GetRankings(_selectedSessionId);
         _recentGames = Sessions.GetRecentGames(_selectedSessionId, _isAllSessions ? 40 : 20);
@@ -330,23 +418,39 @@
         _allPlayers = Sessions.GetAllPlayers();
     }
 
-    private void StartEditName()
+    private void StartEditName(Guid sessionId)
     {
-        if (_selectedSessionId is not Guid sessionId) return;
         var session = _sessions.FirstOrDefault(s => s.Id == sessionId);
         _sessionNameEdit = session is null || string.IsNullOrWhiteSpace(session.Name)
             ? (session?.Date.ToString("ddd d MMM yyyy") ?? "")
             : session.Name;
-        _editingName = true;
+        _editingSessionId = sessionId;
     }
 
-    private void CancelEditName() => _editingName = false;
+    private void CancelEditName() => _editingSessionId = null;
 
     private void SaveSessionName()
     {
-        if (_selectedSessionId is not Guid sessionId) return;
+        if (_editingSessionId is not Guid sessionId) return;
         Sessions.UpdateSessionName(sessionId, _sessionNameEdit);
-        _editingName = false;
+        _editingSessionId = null;
+        LoadData();
+    }
+
+    private void StartEditPlayer(Guid playerId, string name)
+    {
+        _editingPlayerId = playerId;
+        _playerNameEdit = name;
+    }
+
+    private void CancelEditPlayer() => _editingPlayerId = null;
+
+    private void SavePlayerName()
+    {
+        if (_editingPlayerId is not Guid playerId) return;
+        if (!Allocation.RenamePlayer(playerId, _playerNameEdit)) return;
+
+        _editingPlayerId = null;
         LoadData();
     }
 
@@ -386,17 +490,50 @@
         LoadData();
     }
 
-    private void ShowEndSession()
+    private void OpenSessionManager()
     {
-        _nextSessionName = DateOnly.FromDateTime(DateTime.UtcNow).ToString("ddd d MMM yyyy");
-        _showEndSession = true;
+        _newSessionName = DateOnly.FromDateTime(DateTime.UtcNow).ToString("ddd d MMM yyyy");
+        _editingSessionId = null;
+        _showSessionManager = true;
     }
 
-    private void ConfirmEndSession()
+    private void CloseSessionManager()
     {
-        Sessions.EndCurrentSession(_nextSessionName);
-        _showEndSession = false;
-        _selectedKey = Sessions.CurrentSessionId.ToString();
+        _showSessionManager = false;
+        _editingSessionId = null;
+    }
+
+    private void ConfirmCreateSession()
+    {
+        var sessionId = Sessions.CreateNewSession(_newSessionName);
+        _selectedKey = sessionId.ToString();
+        _newSessionName = "";
+        LoadData();
+    }
+
+    private void AskDeleteSession(Guid sessionId)
+    {
+        _sessionPendingDeleteId = sessionId;
+        _confirmDeleteSession = true;
+    }
+
+    private void CancelDeleteSession()
+    {
+        _confirmDeleteSession = false;
+        _sessionPendingDeleteId = null;
+    }
+
+    private void ConfirmDeleteSession()
+    {
+        if (_sessionPendingDeleteId is not Guid sessionId) return;
+
+        var deletedSelectedSession = _selectedSessionId == sessionId;
+        var currentSessionId = Sessions.DeleteSession(sessionId);
+        _confirmDeleteSession = false;
+        _sessionPendingDeleteId = null;
+        _editingSessionId = null;
+        if (deletedSelectedSession)
+            _selectedKey = currentSessionId.ToString();
         LoadData();
     }
 

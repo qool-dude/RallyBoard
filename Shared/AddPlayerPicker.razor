@@ -2,9 +2,14 @@
 @implements IDisposable
 
 <form class="waiting__add player-picker toolbar__add" @onsubmit="AddPlayer" @onsubmit:preventDefault>
+    @if (_dropdownOpen || !string.IsNullOrWhiteSpace(_warningMessage))
+    {
+        <div class="player-picker-backdrop" @onclick="DismissPicker" @onmousedown:preventDefault></div>
+    }
     <input class="player-picker__input"
            @bind="_filter"
            @bind:event="oninput"
+           @bind:after="ClearWarning"
            @onfocus="OpenDropdown"
            @onkeydown="OnKeyDown"
            placeholder="Add a player…"
@@ -13,7 +18,11 @@
            aria-expanded="@_dropdownOpen"
            aria-controls="player-picker-list" />
     <button type="submit" class="btn btn-primary btn-sm">Add</button>
-    @if (_dropdownOpen && FilteredPlayers.Count > 0)
+    @if (!string.IsNullOrWhiteSpace(_warningMessage))
+    {
+        <div class="player-picker__warning" role="alert">@_warningMessage</div>
+    }
+    else if (_dropdownOpen && FilteredPlayers.Count > 0)
     {
         <ul id="player-picker-list" class="player-picker__list" role="listbox">
             @for (var i = 0; i < FilteredPlayers.Count; i++)
@@ -42,6 +51,7 @@
     private bool _dropdownOpen;
     private int _highlightIndex;
     private List<Player> _roster = new();
+    private string? _warningMessage;
 
     private List<Player> FilteredPlayers
     {
@@ -89,6 +99,7 @@
     {
         Allocation.CheckInPlayer(player.Id);
         _filter = "";
+        _warningMessage = null;
         CloseDropdown();
     }
 
@@ -97,6 +108,22 @@
         if (string.IsNullOrWhiteSpace(_filter)) return;
 
         var trimmed = _filter.Trim();
+        var activeIds = Allocation.GetActivePlayerIds();
+        var exactMatch = _roster.FirstOrDefault(p =>
+            p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+
+        if (exactMatch is not null)
+        {
+            if (activeIds.Contains(exactMatch.Id))
+            {
+                _warningMessage = $"{exactMatch.Name} has already been added.";
+                CloseDropdown();
+                return;
+            }
+
+            SelectPlayer(exactMatch);
+            return;
+        }
 
         if (_dropdownOpen && FilteredPlayers.Count > 0 && _highlightIndex < FilteredPlayers.Count)
         {
@@ -104,18 +131,16 @@
             return;
         }
 
-        var exactMatch = _roster.FirstOrDefault(p =>
-            p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase)
-            && !Allocation.GetActivePlayerIds().Contains(p.Id));
-
-        if (exactMatch is not null)
-        {
-            SelectPlayer(exactMatch);
-            return;
-        }
-
         Allocation.AddPlayer(trimmed);
         _filter = "";
+        CloseDropdown();
+    }
+
+    private void ClearWarning() => _warningMessage = null;
+
+    private void DismissPicker()
+    {
+        _warningMessage = null;
         CloseDropdown();
     }
 
@@ -138,10 +163,7 @@
                 _highlightIndex = Math.Max(_highlightIndex - 1, 0);
                 break;
             case "Enter":
-                if (FilteredPlayers.Count > 0 && _highlightIndex < FilteredPlayers.Count)
-                    SelectPlayer(FilteredPlayers[_highlightIndex]);
-                else
-                    AddPlayer();
+                AddPlayer();
                 break;
             case "Escape":
                 CloseDropdown();

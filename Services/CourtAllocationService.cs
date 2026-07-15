@@ -231,7 +231,7 @@ namespace RallyBoard.Services
 
             foreach (var court in Courts)
             {
-                var pick = _matchmaking.PickLineup(Waiting, _sessions.CurrentSessionId, _sessions.IsTestMode);
+                var pick = _matchmaking.PickLineup(GetAvailableWaitingPlayers(), _sessions.CurrentSessionId, _sessions.IsTestMode);
                 if (pick is null)
                     break;
 
@@ -253,10 +253,11 @@ namespace RallyBoard.Services
         /// </summary>
         public MatchmakingPickResult? ProposePickGame()
         {
-            if (Waiting.Count < 4)
+            var available = GetAvailableWaitingPlayers();
+            if (available.Count < 4)
                 return null;
 
-            return _matchmaking.PickLineup(Waiting, _sessions.CurrentSessionId, _sessions.IsTestMode);
+            return _matchmaking.PickLineup(available, _sessions.CurrentSessionId, _sessions.IsTestMode);
         }
 
         /// <summary>
@@ -498,6 +499,9 @@ namespace RallyBoard.Services
                 {
                     court2.Slots[slot2] = player1;
                     Waiting.Remove(player1);
+                    // Court players often have WaitingSince cleared — restart their wait timer
+                    player2.WaitingSince = null;
+                    MarkPlayerWaiting(player2);
                     Waiting.Add(player2);
                 }
             }
@@ -507,6 +511,8 @@ namespace RallyBoard.Services
                 {
                     court1.Slots[slot1] = player2;
                     Waiting.Remove(player2);
+                    player1.WaitingSince = null;
+                    MarkPlayerWaiting(player1);
                     Waiting.Add(player1);
                 }
             }
@@ -530,8 +536,10 @@ namespace RallyBoard.Services
             using var db = _dbFactory.CreateDbContext();
             var trimmed = name.Trim();
             var isTest = _sessions.IsTestMode;
-            var existing = db.Players.FirstOrDefault(p =>
-                p.IsTest == isTest && p.Name.ToLower() == trimmed.ToLower());
+            var existing = db.Players
+                .Where(p => p.IsTest == isTest)
+                .AsEnumerable()
+                .FirstOrDefault(p => p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
             {
                 CheckInPlayer(existing.Id);
@@ -544,6 +552,36 @@ namespace RallyBoard.Services
             db.SaveChanges();
 
             CheckInPlayer(player.Id);
+        }
+
+        public bool RenamePlayer(Guid playerId, string name)
+        {
+            var trimmed = name.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) return false;
+
+            using var db = _dbFactory.CreateDbContext();
+            var player = db.Players.FirstOrDefault(p =>
+                p.Id == playerId && p.IsTest == _sessions.IsTestMode);
+            if (player is null) return false;
+
+            var duplicate = db.Players
+                .Where(p => p.Id != playerId && p.IsTest == player.IsTest)
+                .AsEnumerable()
+                .Any(p => p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+            if (duplicate) return false;
+
+            player.Name = trimmed;
+            db.SaveChanges();
+
+            foreach (var activePlayer in Waiting
+                .Concat(Courts.SelectMany(c => c.Slots).OfType<Player>())
+                .Where(p => p.Id == playerId))
+            {
+                activePlayer.Name = trimmed;
+            }
+
+            OnChange?.Invoke();
+            return true;
         }
 
         public void CheckInPlayer(Guid playerId)
@@ -563,6 +601,10 @@ namespace RallyBoard.Services
         }
 
         public List<Player> GetRosterPlayers() => _sessions.GetAllPlayers();
+
+        /// <summary>Waiting players eligible for automatic matchmaking (not paused).</summary>
+        public List<Player> GetAvailableWaitingPlayers() =>
+            Waiting.Where(p => !p.IsPaused).ToList();
 
         public HashSet<Guid> GetActivePlayerIds()
         {
@@ -598,6 +640,34 @@ namespace RallyBoard.Services
                     court.Slots[i] = null;
                 }
             }
+
+            PersistState();
+            OnChange?.Invoke();
+        }
+
+        /// <summary>
+        /// Swaps everything assigned to two physical courts, including players,
+        /// timer state, score state, and the pending matchmaking explanation.
+        /// </summary>
+        public void MoveCourt(Court source, Court destination)
+        {
+            if (source is null || destination is null || source.Id == destination.Id)
+                return;
+
+            for (var i = 0; i < source.Slots.Length; i++)
+                (source.Slots[i], destination.Slots[i]) = (destination.Slots[i], source.Slots[i]);
+
+            (source.StartedAt, destination.StartedAt) = (destination.StartedAt, source.StartedAt);
+            (source.PausedAt, destination.PausedAt) = (destination.PausedAt, source.PausedAt);
+            (source.AccumulatedTime, destination.AccumulatedTime) =
+                (destination.AccumulatedTime, source.AccumulatedTime);
+            (source.Winner, destination.Winner) = (destination.Winner, source.Winner);
+            (source.TeamAScore, destination.TeamAScore) =
+                (destination.TeamAScore, source.TeamAScore);
+            (source.TeamBScore, destination.TeamBScore) =
+                (destination.TeamBScore, source.TeamBScore);
+            (source.PendingMatchmaking, destination.PendingMatchmaking) =
+                (destination.PendingMatchmaking, source.PendingMatchmaking);
 
             PersistState();
             OnChange?.Invoke();

@@ -1,9 +1,10 @@
 @inject CourtAllocationService Allocation
+@implements IDisposable
 
 @if (Visible)
 {
     <div class="modal-backdrop" @onclick="Close">
-        <div class="modal-panel" role="dialog" aria-labelledby="end-game-title" @onclick:stopPropagation>
+        <div class="modal-panel end-game-modal @(_gameEnded ? "end-game-modal--preview" : "")" role="dialog" aria-labelledby="end-game-title" @onclick:stopPropagation>
             <div class="modal-panel__head">
                 <h3 id="end-game-title">@(_gameEnded ? $"Next game — {Court.Name}" : $"End game — {Court.Name}")</h3>
                 <button type="button" class="modal-panel__close" title="Close" @onclick="Close">&times;</button>
@@ -11,24 +12,44 @@
 
             @if (_gameEnded)
             {
-                <p class="modal-panel__hint">Preview only — Accept to put this line-up on the court and start, or close to cancel.</p>
+                <p class="modal-panel__hint">This is only a preview - Accept to put this line-up on the court and start, or press &quot;Wait for more Players&quot;.</p>
 
                 <div class="court__field end-game__field">
                     <div class="court__team">
-                        <div class="slot @(PreviewSlot(0) is null ? "slot--empty" : "")">
+                        <div class="slot @(PreviewSlot(0) is null ? "slot--empty" : "")"
+                             @ondragover="@(() => { })" @ondragover:preventDefault
+                             @ondrop="() => DropPreviewOnSlot(0)" @ondrop:preventDefault>
                             @if (PreviewSlot(0) is { } p0)
                             {
-                                <PlayerChip Player="p0" ShowRemove="false" IsWaiting="false" />
+                                <PlayerChip Player="p0"
+                                            ShowRemove="true"
+                                            AllowRemove="false"
+                                            IsWaiting="false"
+                                            SwapCandidates="PreviewSwapCandidates(p0)"
+                                            PrimarySwapCandidates="PreviewGamePlayers(p0)"
+                                            DragStarted="StartPreviewDrag"
+                                            DroppedOn="DropPreviewOnPlayer"
+                                            SwapRequested="other => SwapPreviewPlayer(p0, other)" />
                             }
                             else
                             {
                                 <span class="slot__placeholder">Empty</span>
                             }
                         </div>
-                        <div class="slot @(PreviewSlot(1) is null ? "slot--empty" : "")">
+                        <div class="slot @(PreviewSlot(1) is null ? "slot--empty" : "")"
+                             @ondragover="@(() => { })" @ondragover:preventDefault
+                             @ondrop="() => DropPreviewOnSlot(1)" @ondrop:preventDefault>
                             @if (PreviewSlot(1) is { } p1)
                             {
-                                <PlayerChip Player="p1" ShowRemove="false" IsWaiting="false" />
+                                <PlayerChip Player="p1"
+                                            ShowRemove="true"
+                                            AllowRemove="false"
+                                            IsWaiting="false"
+                                            SwapCandidates="PreviewSwapCandidates(p1)"
+                                            PrimarySwapCandidates="PreviewGamePlayers(p1)"
+                                            DragStarted="StartPreviewDrag"
+                                            DroppedOn="DropPreviewOnPlayer"
+                                            SwapRequested="other => SwapPreviewPlayer(p1, other)" />
                             }
                             else
                             {
@@ -38,20 +59,40 @@
                     </div>
                     <div class="court__net" aria-hidden="true"></div>
                     <div class="court__team">
-                        <div class="slot @(PreviewSlot(2) is null ? "slot--empty" : "")">
+                        <div class="slot @(PreviewSlot(2) is null ? "slot--empty" : "")"
+                             @ondragover="@(() => { })" @ondragover:preventDefault
+                             @ondrop="() => DropPreviewOnSlot(2)" @ondrop:preventDefault>
                             @if (PreviewSlot(2) is { } p2)
                             {
-                                <PlayerChip Player="p2" ShowRemove="false" IsWaiting="false" />
+                                <PlayerChip Player="p2"
+                                            ShowRemove="true"
+                                            AllowRemove="false"
+                                            IsWaiting="false"
+                                            SwapCandidates="PreviewSwapCandidates(p2)"
+                                            PrimarySwapCandidates="PreviewGamePlayers(p2)"
+                                            DragStarted="StartPreviewDrag"
+                                            DroppedOn="DropPreviewOnPlayer"
+                                            SwapRequested="other => SwapPreviewPlayer(p2, other)" />
                             }
                             else
                             {
                                 <span class="slot__placeholder">Empty</span>
                             }
                         </div>
-                        <div class="slot @(PreviewSlot(3) is null ? "slot--empty" : "")">
+                        <div class="slot @(PreviewSlot(3) is null ? "slot--empty" : "")"
+                             @ondragover="@(() => { })" @ondragover:preventDefault
+                             @ondrop="() => DropPreviewOnSlot(3)" @ondrop:preventDefault>
                             @if (PreviewSlot(3) is { } p3)
                             {
-                                <PlayerChip Player="p3" ShowRemove="false" IsWaiting="false" />
+                                <PlayerChip Player="p3"
+                                            ShowRemove="true"
+                                            AllowRemove="false"
+                                            IsWaiting="false"
+                                            SwapCandidates="PreviewSwapCandidates(p3)"
+                                            PrimarySwapCandidates="PreviewGamePlayers(p3)"
+                                            DragStarted="StartPreviewDrag"
+                                            DroppedOn="DropPreviewOnPlayer"
+                                            SwapRequested="other => SwapPreviewPlayer(p3, other)" />
                             }
                             else
                             {
@@ -69,6 +110,7 @@
             else
             {
                 <p class="modal-panel__hint">Tap a team to mark the winner. Drag players to adjust the line-up.</p>
+                <p class="end-game__score-benefit">Keeping the score helps us give you more competitive matches.</p>
 
                 <div class="court__field end-game__field">
                     <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")"
@@ -77,8 +119,38 @@
                          title="Team A wins"
                          @onclick='() => SelectWinner("TeamA")'
                          @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
-                        <CourtSlot Court="Court" Index="0" Player="Court.Slots[0]" ShowRemove="false" />
-                        <CourtSlot Court="Court" Index="1" Player="Court.Slots[1]" ShowRemove="false" />
+                        <div class="end-game__team-score">
+                            <span class="end-game__score-label">Team A</span>
+                            <div class="stepper end-game__score-stepper" @onclick:stopPropagation>
+                                <button type="button"
+                                        aria-label="Decrease Team A score"
+                                        @onclick="() => AdjustScore(true, -1)"
+                                        @onpointerdown="() => StartScoreRepeat(true, -1)"
+                                        @onpointerup="StopScoreRepeat"
+                                        @onpointercancel="StopScoreRepeat"
+                                        @onpointerleave="StopScoreRepeat">&minus;</button>
+                                <input @bind="_teamAScore" @bind:event="oninput" placeholder="-" />
+                                <button type="button"
+                                        aria-label="Increase Team A score"
+                                        @onclick="() => AdjustScore(true, 1)"
+                                        @onpointerdown="() => StartScoreRepeat(true, 1)"
+                                        @onpointerup="StopScoreRepeat"
+                                        @onpointercancel="StopScoreRepeat"
+                                        @onpointerleave="StopScoreRepeat">+</button>
+                            </div>
+                        </div>
+                        <CourtSlot Court="Court"
+                                   Index="0"
+                                   Player="Court.Slots[0]"
+                                   ShowRemove="true"
+                                   AllowRemove="false"
+                                   SwapCandidates="TeamBPlayers" />
+                        <CourtSlot Court="Court"
+                                   Index="1"
+                                   Player="Court.Slots[1]"
+                                   ShowRemove="true"
+                                   AllowRemove="false"
+                                   SwapCandidates="TeamBPlayers" />
                         @if (Winner == "TeamA")
                         {
                             <span class="end-game__badge">Winner</span>
@@ -93,8 +165,38 @@
                          title="Team B wins"
                          @onclick='() => SelectWinner("TeamB")'
                          @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
-                        <CourtSlot Court="Court" Index="2" Player="Court.Slots[2]" ShowRemove="false" />
-                        <CourtSlot Court="Court" Index="3" Player="Court.Slots[3]" ShowRemove="false" />
+                        <div class="end-game__team-score">
+                            <span class="end-game__score-label">Team B</span>
+                            <div class="stepper end-game__score-stepper" @onclick:stopPropagation>
+                                <button type="button"
+                                        aria-label="Decrease Team B score"
+                                        @onclick="() => AdjustScore(false, -1)"
+                                        @onpointerdown="() => StartScoreRepeat(false, -1)"
+                                        @onpointerup="StopScoreRepeat"
+                                        @onpointercancel="StopScoreRepeat"
+                                        @onpointerleave="StopScoreRepeat">&minus;</button>
+                                <input @bind="_teamBScore" @bind:event="oninput" placeholder="-" />
+                                <button type="button"
+                                        aria-label="Increase Team B score"
+                                        @onclick="() => AdjustScore(false, 1)"
+                                        @onpointerdown="() => StartScoreRepeat(false, 1)"
+                                        @onpointerup="StopScoreRepeat"
+                                        @onpointercancel="StopScoreRepeat"
+                                        @onpointerleave="StopScoreRepeat">+</button>
+                            </div>
+                        </div>
+                        <CourtSlot Court="Court"
+                                   Index="2"
+                                   Player="Court.Slots[2]"
+                                   ShowRemove="true"
+                                   AllowRemove="false"
+                                   SwapCandidates="TeamAPlayers" />
+                        <CourtSlot Court="Court"
+                                   Index="3"
+                                   Player="Court.Slots[3]"
+                                   ShowRemove="true"
+                                   AllowRemove="false"
+                                   SwapCandidates="TeamAPlayers" />
                         @if (Winner == "TeamB")
                         {
                             <span class="end-game__badge">Winner</span>
@@ -102,29 +204,14 @@
                     </div>
                 </div>
 
-                <div class="end-game__scores">
-                    <div class="end-game__score-col">
-                        <span class="end-game__score-label">Team A</span>
-                        <div class="stepper end-game__score-stepper">
-                            <button type="button" aria-label="Decrease Team A score" @onclick="() => AdjustScore(true, -1)">&minus;</button>
-                            <input @bind="_teamAScore" @bind:event="oninput" placeholder="-" />
-                            <button type="button" aria-label="Increase Team A score" @onclick="() => AdjustScore(true, 1)">+</button>
-                        </div>
-                    </div>
-                    <span class="end-game__score-divider">:</span>
-                    <div class="end-game__score-col">
-                        <span class="end-game__score-label">Team B</span>
-                        <div class="stepper end-game__score-stepper">
-                            <button type="button" aria-label="Decrease Team B score" @onclick="() => AdjustScore(false, -1)">&minus;</button>
-                            <input @bind="_teamBScore" @bind:event="oninput" placeholder="-" />
-                            <button type="button" aria-label="Increase Team B score" @onclick="() => AdjustScore(false, 1)">+</button>
-                        </div>
-                    </div>
-                </div>
+                @if (!string.IsNullOrWhiteSpace(_validationMessage))
+                {
+                    <p class="end-game__validation" role="alert">@_validationMessage</p>
+                }
 
                 <div class="modal-panel__actions">
                     <button type="button" class="btn btn-ghost" @onclick="Close">Cancel</button>
-                    <button type="button" class="btn btn-primary" disabled="@(Winner is null)" @onclick="Confirm">End game</button>
+                    <button type="button" class="btn btn-primary" @onclick="Confirm">End game</button>
                 </div>
             }
         </div>
@@ -145,19 +232,101 @@
     private int? _teamBScore;
     private bool _scoresTouched;
     private bool _gameEnded;
+    private string? _validationMessage;
+    private System.Threading.Timer? _scoreRepeatTimer;
+    private Player?[]? _boundPreviewSlots;
+    private List<Player> _previewRoster = new();
+    private Guid? _draggedPreviewPlayerId;
 
     private Player? PreviewSlot(int index) =>
         PreviewSlots is not null && index >= 0 && index < PreviewSlots.Length
             ? PreviewSlots[index]
             : null;
 
+    private List<Player> TeamAPlayers =>
+        Court.Slots.Take(2).OfType<Player>().ToList();
+
+    private List<Player> TeamBPlayers =>
+        Court.Slots.Skip(2).Take(2).OfType<Player>().ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (!_gameEnded || PreviewSlots is null || ReferenceEquals(_boundPreviewSlots, PreviewSlots))
+            return;
+
+        _boundPreviewSlots = PreviewSlots;
+        _previewRoster = Allocation.Waiting
+            .Where(p => !p.IsPaused)
+            .Concat(PreviewSlots.OfType<Player>())
+            .DistinctBy(p => p.Id)
+            .OrderBy(p => p.Name)
+            .ToList();
+    }
+
+    private IEnumerable<Player> PreviewSwapCandidates(Player player) =>
+        _previewRoster.Where(p => p.Id != player.Id);
+
+    private IEnumerable<Player> PreviewGamePlayers(Player player) =>
+        PreviewSlots?.OfType<Player>().Where(p => p.Id != player.Id)
+        ?? Enumerable.Empty<Player>();
+
+    private void StartPreviewDrag(Player player) =>
+        _draggedPreviewPlayerId = player.Id;
+
+    private void DropPreviewOnPlayer(Player player)
+    {
+        if (PreviewSlots is null) return;
+        var targetIndex = Array.FindIndex(PreviewSlots, p => p?.Id == player.Id);
+        DropPreviewOnSlot(targetIndex);
+    }
+
+    private void DropPreviewOnSlot(int targetIndex)
+    {
+        if (PreviewSlots is null ||
+            _draggedPreviewPlayerId is not Guid draggedId ||
+            targetIndex < 0 ||
+            targetIndex >= PreviewSlots.Length)
+            return;
+
+        var sourceIndex = Array.FindIndex(PreviewSlots, p => p?.Id == draggedId);
+        if (sourceIndex < 0 || sourceIndex == targetIndex) return;
+
+        (PreviewSlots[sourceIndex], PreviewSlots[targetIndex]) =
+            (PreviewSlots[targetIndex], PreviewSlots[sourceIndex]);
+        _draggedPreviewPlayerId = null;
+    }
+
+    private void SwapPreviewPlayer(Player current, Player replacement)
+    {
+        if (PreviewSlots is null) return;
+
+        var currentIndex = Array.FindIndex(PreviewSlots, p => p?.Id == current.Id);
+        if (currentIndex < 0) return;
+
+        var replacementIndex = Array.FindIndex(PreviewSlots, p => p?.Id == replacement.Id);
+        if (replacementIndex >= 0)
+        {
+            (PreviewSlots[currentIndex], PreviewSlots[replacementIndex]) =
+                (PreviewSlots[replacementIndex], PreviewSlots[currentIndex]);
+        }
+        else
+        {
+            PreviewSlots[currentIndex] = replacement;
+        }
+    }
+
     public void ResetForm()
     {
+        StopScoreRepeat();
         Winner = null;
         _teamAScore = null;
         _teamBScore = null;
         _scoresTouched = false;
         _gameEnded = false;
+        _validationMessage = null;
+        _boundPreviewSlots = null;
+        _previewRoster.Clear();
+        _draggedPreviewPlayerId = null;
     }
 
     public void SetEnded()
@@ -169,6 +338,7 @@
     private void SelectWinner(string winner)
     {
         Winner = winner;
+        _validationMessage = null;
 
         if (!_scoresTouched)
         {
@@ -176,10 +346,10 @@
             {
                 case "TeamA":
                     _teamAScore = 21;
-                    _teamBScore = 10;
+                    _teamBScore = 15;
                     break;
                 case "TeamB":
-                    _teamAScore = 10;
+                    _teamAScore = 15;
                     _teamBScore = 21;
                     break;
             }
@@ -202,15 +372,54 @@
             _teamBScore = Math.Max(0, (_teamBScore ?? 0) + delta);
     }
 
-    private async Task Close() => await OnClose.InvokeAsync();
-    private async Task WaitforPlayers() => await OnWaitforPlayers.InvokeAsync();
-    private async Task Accept() => await OnAccept.InvokeAsync();
+    private void StartScoreRepeat(bool teamA, int delta)
+    {
+        StopScoreRepeat();
+        _scoreRepeatTimer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                AdjustScore(teamA, delta);
+                StateHasChanged();
+            });
+        }, null, dueTime: 450, period: 100);
+    }
+
+    private void StopScoreRepeat()
+    {
+        var timer = Interlocked.Exchange(ref _scoreRepeatTimer, null);
+        timer?.Dispose();
+    }
+
+    private async Task Close()
+    {
+        StopScoreRepeat();
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task WaitforPlayers()
+    {
+        StopScoreRepeat();
+        await OnWaitforPlayers.InvokeAsync();
+    }
+
+    private async Task Accept()
+    {
+        StopScoreRepeat();
+        await OnAccept.InvokeAsync();
+    }
 
     private async Task Confirm()
     {
+        StopScoreRepeat();
         if (Winner is null)
+        {
+            _validationMessage = "Please select a winner as it helps us improve your service";
             return;
+        }
 
         await OnConfirm.InvokeAsync(new EndGameResult(Winner, _teamAScore, _teamBScore));
     }
+
+    public void Dispose() => StopScoreRepeat();
 }
