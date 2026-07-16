@@ -92,11 +92,22 @@ public class MatchmakingService
     }
 
     /// <summary>
-    /// Picks 4 waiting players using either the Balanced or Ability algorithm (coin flip by default).
+    /// Fills a four-player lineup using either the Balanced or Ability algorithm.
+    /// Existing fixed slots are preserved and only empty positions are selected.
     /// </summary>
-    public MatchmakingPickResult? PickLineup(IReadOnlyList<Player> waiting, Guid sessionId, bool isTest)
+    public MatchmakingPickResult? PickLineup(
+        IReadOnlyList<Player> waiting,
+        Guid sessionId,
+        bool isTest,
+        IReadOnlyList<Player?>? fixedSlots = null)
     {
-        if (waiting.Count < 4)
+        var preservedSlots = fixedSlots is { Count: 4 }
+            ? fixedSlots.ToArray()
+            : new Player?[4];
+        var fixedPlayers = preservedSlots.OfType<Player>().DistinctBy(p => p.Id).ToArray();
+        var slotsToFill = 4 - fixedPlayers.Length;
+
+        if (slotsToFill <= 0 || waiting.Count < slotsToFill)
             return null;
 
         using var historyDb = _dbFactory.CreateDbContext();
@@ -136,10 +147,11 @@ public class MatchmakingService
         double RatingOf(Player p) =>
             ratings.TryGetValue(p.Id, out var r) ? r : defaultRating;
 
-        var poolRatings = waiting.Select(RatingOf).OrderByDescending(r => r).ToList();
-        var strongPoolSize = Math.Max(1, (int)Math.Ceiling(waiting.Count * Math.Clamp(sel.TopPlayerPercentile, 0.05, 1)));
+        var fullPool = waiting.Concat(fixedPlayers).DistinctBy(p => p.Id).ToList();
+        var poolRatings = fullPool.Select(RatingOf).OrderByDescending(r => r).ToList();
+        var strongPoolSize = Math.Max(1, (int)Math.Ceiling(fullPool.Count * Math.Clamp(sel.TopPlayerPercentile, 0.05, 1)));
         var topThreshold = poolRatings[Math.Min(strongPoolSize - 1, poolRatings.Count - 1)];
-        var topIds = waiting.Where(p => RatingOf(p) >= topThreshold).Select(p => p.Id).ToHashSet();
+        var topIds = fullPool.Where(p => RatingOf(p) >= topThreshold).Select(p => p.Id).ToHashSet();
 
         var maxWait = waiting.Max(p => p.GetWaitingElapsed().TotalSeconds);
         if (maxWait <= 0) maxWait = 1;
@@ -147,12 +159,15 @@ public class MatchmakingService
         var balanceBias = useAbility ? 0.85 : 0.6;
         var candidates = new List<(Player[] Slots, double Score, double Wait, double Mix, double Bal, double Peer, double Hom, bool IsRepeat)>();
 
-        foreach (var quartet in Combinations(waiting, 4))
+        foreach (var selected in Combinations(waiting, slotsToFill))
         {
-            var waitScore = quartet.Average(p => p.GetWaitingElapsed().TotalSeconds / maxWait) * 100;
+            var quartet = fixedPlayers.Concat(selected).ToArray();
+            var waitScore = selected.Average(p => p.GetWaitingElapsed().TotalSeconds / maxWait) * 100;
             var peerScore = PeerQualityScore(quartet, RatingOf, topIds, sel.TopClusterBonus);
             var homScore = HomogeneityScore(quartet, RatingOf);
-            var bestSplit = BestTeamSplit(quartet, ratings, recentPairs, balanceBias);
+            var bestSplit = fixedPlayers.Length == 0
+                ? BestTeamSplit(quartet, ratings, recentPairs, balanceBias)
+                : BestTeamAssignment(selected, preservedSlots, ratings, recentPairs, balanceBias);
             var score =
                 (waitScore * wWait
                  + bestSplit.MixScore * wMix
@@ -167,10 +182,9 @@ public class MatchmakingService
         if (candidates.Count == 0)
             return null;
 
-        // Anyone who has not yet played this session gets priority. If there
-        // are four or more, pick entirely from that group; otherwise every
-        // first-game player is guaranteed a place in the next lineup.
-        var requiredFirstGamePlayers = Math.Min(4, firstGamePlayerIds.Count);
+        // Anyone who has not yet played this session gets priority for the
+        // remaining empty positions.
+        var requiredFirstGamePlayers = Math.Min(slotsToFill, firstGamePlayerIds.Count);
         var priorityCandidates = requiredFirstGamePlayers == 0
             ? candidates
             : candidates
@@ -199,7 +213,7 @@ public class MatchmakingService
         }
 
         var chosen = poolToUse[chosenIndex];
-        var overallRank = candidates
+        var overallRank = priorityCandidates
             .OrderByDescending(c => c.Score)
             .Select((c, i) => (c, Rank: i + 1))
             .First(x => FoursomeKey(x.c.Slots) == FoursomeKey(chosen.Slots))
@@ -422,6 +436,70 @@ public class MatchmakingService
         }
     }
 
+    private (Player[] Slots, double MixScore, double BalanceScore) BestTeamAssignment(
+        Player[] selected,
+        Player?[] fixedSlots,
+        Dictionary<Guid, double> ratings,
+        Dictionary<(Guid, Guid), int> recentPairs,
+        double balanceBias)
+    {
+        var emptyIndices = fixedSlots
+            .Select((player, index) => (player, index))
+            .Where(x => x.player is null)
+            .Select(x => x.index)
+            .ToArray();
+        var defaultRating = Options.Rating.DefaultRating;
+        balanceBias = Math.Clamp(balanceBias, 0, 1);
+        var mixBias = 1.0 - balanceBias;
+        var bestScore = double.MinValue;
+        Player[]? bestSlots = null;
+        double bestMix = 0, bestBalance = 0;
+
+        foreach (var permutation in Permutations(selected))
+        {
+            var slots = fixedSlots.ToArray();
+            for (var i = 0; i < emptyIndices.Length; i++)
+                slots[emptyIndices[i]] = permutation[i];
+
+            var complete = slots.Select(p => p!).ToArray();
+            var rA = RatingOf(complete[0]) + RatingOf(complete[1]);
+            var rB = RatingOf(complete[2]) + RatingOf(complete[3]);
+            var diff = Math.Abs(rA - rB);
+            var balanceScore = Math.Clamp(100.0 * (1.0 - diff / 200.0), 0, 100);
+
+            var pairHits =
+                PairCount(complete[0].Id, complete[1].Id) +
+                PairCount(complete[2].Id, complete[3].Id) +
+                PairCount(complete[0].Id, complete[2].Id) +
+                PairCount(complete[0].Id, complete[3].Id) +
+                PairCount(complete[1].Id, complete[2].Id) +
+                PairCount(complete[1].Id, complete[3].Id);
+            var mixScore = Math.Clamp(
+                100.0 * (1.0 - pairHits / (6.0 * Math.Max(1, Options.Selection.RecentGamesLookback))),
+                0,
+                100);
+
+            var assignmentScore = balanceScore * balanceBias + mixScore * mixBias;
+            if (assignmentScore <= bestScore) continue;
+
+            bestScore = assignmentScore;
+            bestSlots = complete;
+            bestMix = mixScore;
+            bestBalance = balanceScore;
+        }
+
+        return (bestSlots ?? fixedSlots.Select(p => p!).ToArray(), bestMix, bestBalance);
+
+        double RatingOf(Player p) =>
+            ratings.TryGetValue(p.Id, out var rating) ? rating : defaultRating;
+
+        int PairCount(Guid a, Guid b)
+        {
+            var key = a.CompareTo(b) < 0 ? (a, b) : (b, a);
+            return recentPairs.TryGetValue(key, out var count) ? count : 0;
+        }
+    }
+
     private HashSet<string> GetSessionFoursomeKeys(Guid sessionId)
     {
         using var db = _dbFactory.CreateDbContext();
@@ -482,6 +560,22 @@ public class MatchmakingService
         {
             var key = a.CompareTo(b) < 0 ? (a, b) : (b, a);
             counts[key] = counts.TryGetValue(key, out var c) ? c + 1 : 1;
+        }
+    }
+
+    private static IEnumerable<Player[]> Permutations(IReadOnlyList<Player> players)
+    {
+        if (players.Count == 0)
+        {
+            yield return Array.Empty<Player>();
+            yield break;
+        }
+
+        for (var i = 0; i < players.Count; i++)
+        {
+            var remaining = players.Where((_, index) => index != i).ToArray();
+            foreach (var tail in Permutations(remaining))
+                yield return new[] { players[i] }.Concat(tail).ToArray();
         }
     }
 

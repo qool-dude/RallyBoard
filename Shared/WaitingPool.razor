@@ -7,26 +7,58 @@
           @ondragleave="() => _dragOver = false"
           @ondrop="HandleDrop" @ondrop:preventDefault>
     <div class="waiting__head">
-        <h3>Waiting Pool <span class="waiting__count">@Allocation.Waiting.Count</span></h3>
+        <h3>Waiting Pool <span class="waiting__count">@ActiveWaiting.Count</span></h3>
     </div>
 
-    @if (Allocation.Waiting.Count == 0)
+    @if (ActiveWaiting.Count == 0)
     {
-        <p class="waiting__empty">Nobody's waiting — add players from the bar above.</p>
+        <p class="waiting__empty">
+            @(PausedWaiting.Count == 0
+                ? "Nobody's waiting — add players from the bar above."
+                : "No players waiting — paused players are listed below.")
+        </p>
     }
     else
     {
         <div class="waiting__chips">
-            @foreach (var player in Allocation.Waiting.OrderByDescending(r => r.GetWaitingElapsed()))
+            @foreach (var player in ActiveWaiting)
             {
                 <PlayerChip @key="player.Id" Player="player" IsWaiting="true" />
             }
+        </div>
+    }
+
+    @if (PausedWaiting.Count > 0)
+    {
+        <div class="waiting__paused">
+            <h4 class="waiting__paused-heading">
+                Paused Players
+                <span class="waiting__count">@PausedWaiting.Count</span>
+            </h4>
+            <div class="waiting__chips">
+                @foreach (var player in PausedWaiting)
+                {
+                    <PlayerChip @key="player.Id" Player="player" IsWaiting="true" />
+                }
+            </div>
         </div>
     }
 </section>
 
 @code {
     private bool _dragOver;
+
+    private List<Player> ActiveWaiting =>
+        Allocation.Waiting
+            .Where(p => !p.IsPaused)
+            .OrderByDescending(p => p.GetWaitingElapsed())
+            .ToList();
+
+    private List<Player> PausedWaiting =>
+        Allocation.Waiting
+            .Where(p => p.IsPaused)
+            .OrderBy(p => p.Name)
+            .ToList();
 
     protected override void OnInitialized() => Allocation.OnChange += OnStateChanged;
 

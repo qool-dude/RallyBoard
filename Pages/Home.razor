@@ -22,30 +22,26 @@
 
     <div class="toolbar__group toolbar__group--add">
         <AddPlayerPicker />
-        <div class="overflow-menu">
-            <button type="button"
-                    class="overflow-menu__btn"
-                    title="More"
-                    aria-haspopup="menu"
-                    aria-expanded="@_overflowOpen"
-                    @onclick="ToggleOverflow">
-                ⋮
-            </button>
-            @if (_overflowOpen)
-            {
-                <div class="chip-menu-backdrop" @onclick="CloseOverflow"></div>
-                <div class="overflow-menu__panel" role="menu" @onclick:stopPropagation>
-                    @if (Admin.IsAdmin)
-                    {
-                        <button type="button" class="overflow-menu__item" role="menuitem" @onclick="ExitAdmin">Exit admin mode</button>
-                    }
-                    else
-                    {
+        @if (!Admin.IsAdmin)
+        {
+            <div class="overflow-menu">
+                <button type="button"
+                        class="overflow-menu__btn"
+                        title="More"
+                        aria-haspopup="menu"
+                        aria-expanded="@_overflowOpen"
+                        @onclick="ToggleOverflow">
+                    ⋮
+                </button>
+                @if (_overflowOpen)
+                {
+                    <div class="chip-menu-backdrop" @onclick="CloseOverflow"></div>
+                    <div class="overflow-menu__panel" role="menu" @onclick:stopPropagation>
                         <button type="button" class="overflow-menu__item" role="menuitem" @onclick="OpenAdminLogin">Admin login</button>
-                    }
-                </div>
-            }
-        </div>
+                    </div>
+                }
+            </div>
+        }
     </div>
 </section>
 
@@ -84,7 +80,7 @@
 @if (_showAdminLogin)
 {
     <div class="modal-backdrop" @onclick="CancelAdminLogin">
-        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
+        <div class="modal-panel confirm-panel admin-login-modal" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
             <div class="modal-panel__head">
                 <h3 id="admin-login-title">Admin login</h3>
                 <button type="button" class="modal-panel__close" @onclick="CancelAdminLogin" aria-label="Cancel">&times;</button>
@@ -97,7 +93,8 @@
                        type="password"
                        value="@_adminPassword"
                        @oninput="OnAdminPasswordInput"
-                       autocomplete="current-password" />
+                       autocomplete="off"
+                       spellcheck="false" />
                 @if (!string.IsNullOrEmpty(_adminError))
                 {
                     <p class="admin-login-form__error">@_adminError</p>

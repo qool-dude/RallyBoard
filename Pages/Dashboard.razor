@@ -57,7 +57,7 @@
     }
 
     <div class="dashboard__grid">
-        <section class="dashboard-panel">
+        <section class="dashboard-panel dashboard-panel--rankings">
             <div class="dashboard-panel__head">
                 <h2>Rankings</h2>
                 @if (_isAllSessions)
@@ -116,16 +116,26 @@
             }
         </section>
 
-        <section class="dashboard-panel">
+        <section class="dashboard-panel dashboard-panel--attendance">
             <div class="dashboard-panel__head">
                 <h2>Attendance</h2>
-                @if (_isCurrentSession)
-                {
-                    <div class="dashboard-panel__actions">
+                <div class="dashboard-panel__actions">
+                    @if (!_isAllSessions)
+                    {
+                        <label class="attendance-filter">
+                            <select class="attendance-filter__select" @bind="_attendanceFilter" aria-label="Filter attendance">
+                                <option value="all">All</option>
+                                <option value="paid">Paid</option>
+                                <option value="unpaid">Unpaid</option>
+                            </select>
+                        </label>
+                    }
+                    @if (_isCurrentSession)
+                    {
                         <button type="button" class="btn btn-ghost btn-sm" @onclick="SelectAllAttendance">Select all</button>
                         <button type="button" class="btn btn-ghost btn-sm" @onclick="ClearAllAttendance">Clear all</button>
-                    </div>
-                }
+                    }
+                </div>
             </div>
 
             @if (_isAllSessions)
@@ -160,11 +170,14 @@
             {
                 <p class="dashboard__hint">Tick players who attended tonight and record their payment status.</p>
                 <div class="attendance-list">
-                    @foreach (var player in _allPlayers)
+                    @{
+                        var currentRows = FilteredCurrentAttendance.ToList();
+                    }
+                    @foreach (var player in currentRows)
                     {
                         var present = _attendeeIds.Contains(player.Id);
                         var ranking = _rankings.FirstOrDefault(r => r.PlayerId == player.Id);
-                        <div class="attendance-row @(present ? "attendance-row--present" : "")">
+                        <div @key="player.Id" class="attendance-row @(present ? "attendance-row--present" : "")">
                             <input type="checkbox"
                                    checked="@present"
                                    @onchange="e => ToggleAttendance(player.Id, (bool)(e.Value ?? false))" />
@@ -191,14 +204,21 @@
                             </label>
                         </div>
                     }
+                    @if (currentRows.Count == 0)
+                    {
+                        <p class="dashboard__empty">No players match this filter.</p>
+                    }
                 </div>
             }
             else
             {
                 <div class="attendance-list">
-                    @foreach (var row in _rankings.OrderBy(r => r.Name))
+                    @{
+                        var pastRows = FilteredPastAttendance.ToList();
+                    }
+                    @foreach (var row in pastRows)
                     {
-                        <div class="attendance-row attendance-row--present">
+                        <div @key="row.PlayerId" class="attendance-row attendance-row--present">
                             @if (_editingPlayerId == row.PlayerId)
                             {
                                 <form class="attendance-row__rename" @onsubmit="SavePlayerName" @onsubmit:preventDefault>
@@ -220,9 +240,9 @@
                             </label>
                         </div>
                     }
-                    @if (_rankings.Count == 0)
+                    @if (pastRows.Count == 0)
                     {
-                        <p class="dashboard__empty">No attendance recorded.</p>
+                        <p class="dashboard__empty">No players match this filter.</p>
                     }
                 </div>
             }
@@ -373,6 +393,39 @@
     private string _sessionNameEdit = "";
     private Guid? _editingPlayerId;
     private string _playerNameEdit = "";
+    private string _attendanceFilter = "all";
+
+    private IEnumerable<Player> FilteredCurrentAttendance
+    {
+        get
+        {
+            var players = _allPlayers.AsEnumerable();
+            return _attendanceFilter switch
+            {
+                "paid" => players.Where(p =>
+                    _attendeeIds.Contains(p.Id) &&
+                    (_rankings.FirstOrDefault(r => r.PlayerId == p.Id)?.HasPaid ?? false)),
+                "unpaid" => players.Where(p =>
+                    _attendeeIds.Contains(p.Id) &&
+                    !(_rankings.FirstOrDefault(r => r.PlayerId == p.Id)?.HasPaid ?? false)),
+                _ => players
+            };
+        }
+    }
+
+    private IEnumerable<PlayerRankingRow> FilteredPastAttendance
+    {
+        get
+        {
+            var rows = _rankings.OrderBy(r => r.Name).AsEnumerable();
+            return _attendanceFilter switch
+            {
+                "paid" => rows.Where(r => r.HasPaid),
+                "unpaid" => rows.Where(r => !r.HasPaid),
+                _ => rows
+            };
+        }
+    }
 
     protected override void OnInitialized()
     {
@@ -390,6 +443,7 @@
         _sessionPendingDeleteId = null;
         _editingSessionId = null;
         _editingPlayerId = null;
+        _attendanceFilter = "all";
         LoadData();
         StateHasChanged();
     });
@@ -454,10 +508,16 @@
         LoadData();
     }
 
-    private void TogglePaid(Guid playerId, bool hasPaid)
+    private async Task TogglePaid(Guid playerId, bool hasPaid)
     {
         if (_selectedSessionId is not Guid sessionId) return;
         Sessions.SetHasPaid(sessionId, playerId, hasPaid);
+
+        // When the active filter will remove this row, wait until the checkbox
+        // change event finishes so the next row doesn't inherit the click.
+        if (_attendanceFilter is "paid" or "unpaid")
+            await Task.Yield();
+
         LoadData();
     }
 

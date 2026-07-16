@@ -251,13 +251,19 @@ namespace RallyBoard.Services
         /// <summary>
         /// Proposes a lineup without mutating the court or waiting pool.
         /// </summary>
-        public MatchmakingPickResult? ProposePickGame()
+        public MatchmakingPickResult? ProposePickGame(Court? court = null)
         {
             var available = GetAvailableWaitingPlayers();
-            if (available.Count < 4)
+            var fixedSlots = court?.Slots.ToArray() ?? new Player?[4];
+            var slotsToFill = fixedSlots.Count(p => p is null);
+            if (slotsToFill == 0 || available.Count < slotsToFill)
                 return null;
 
-            return _matchmaking.PickLineup(available, _sessions.CurrentSessionId, _sessions.IsTestMode);
+            return _matchmaking.PickLineup(
+                available,
+                _sessions.CurrentSessionId,
+                _sessions.IsTestMode,
+                fixedSlots);
         }
 
         /// <summary>
@@ -287,7 +293,7 @@ namespace RallyBoard.Services
 
         public void PickGame(Court c)
         {
-            var pick = ProposePickGame();
+            var pick = ProposePickGame(c);
             if (pick is null)
                 return;
 

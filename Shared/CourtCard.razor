@@ -17,22 +17,34 @@
             <button class="icon-btn court__clear" title="Clear court" @onclick="AskClearCourt">&#8635;</button>
         }
         <div class="court__actions">
-            @if (Court.FilledCount < 2)
+            @if (Court.FilledCount == 4)
             {
-                <form class="waiting__add" @onsubmit="PickGame" @onsubmit:preventDefault>
-                    <button type="submit" class="btn btn-primary btn-sm">Pick Game</button>
-                </form>
-            }
-            else
-            {
-                <button class="icon-btn @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : Court.IsPaused ? "Resume timer" : "Start timer")" @onclick="ToggleTimer">
-                    @(Court.IsRunning ? "⏸" : "▶")
+                <button class="icon-btn court__start @(Court.IsRunning ? "icon-btn--active" : "")" title="@(Court.IsRunning ? "Pause timer" : Court.IsPaused ? "Resume timer" : "Start timer")" @onclick="ToggleTimer">
+                    @if (Court.IsRunning)
+                    {
+                        <svg class="icon-btn__glyph" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                            <rect x="2.2" y="1.8" width="2.6" height="8.4" rx="0.6" fill="currentColor"/>
+                            <rect x="7.2" y="1.8" width="2.6" height="8.4" rx="0.6" fill="currentColor"/>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg class="icon-btn__glyph icon-btn__glyph--play" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                            <path d="M3.4 1.8v8.4L10.2 6z" fill="currentColor"/>
+                        </svg>
+                    }
                 </button>
                 <span class="court__timer">@Elapsed</span>
                 @if (Court.IsRunning || Court.IsPaused)
                 {
-                    <button type="button" class="btn btn-primary btn-sm" disabled="@(Court.FilledCount < 2)" @onclick="OpenEndGame">End game</button>
+                    <button type="button" class="btn btn-primary btn-sm court__end" @onclick="OpenEndGame">End game</button>
                 }
+            }
+            @if (Court.StartedAt is null && Court.FilledCount < 4)
+            {
+                <form class="court__pick" @onsubmit="PickGame" @onsubmit:preventDefault>
+                    <button type="submit" class="btn btn-primary btn-sm">Pick Game</button>
+                </form>
             }
         </div>
     </div>
@@ -103,7 +115,7 @@
                 <button type="button" class="modal-panel__close" @onclick="CloseNotEnoughPlayers" aria-label="Close">&times;</button>
             </div>
             <p class="modal-panel__hint">
-                Pick Game needs 4 available players. There @(_availablePlayerCount == 1 ? "is" : "are")
+                Pick Game needs @_requiredPlayerCount more available player@(_requiredPlayerCount == 1 ? "" : "s"). There @(_availablePlayerCount == 1 ? "is" : "are")
                 @_availablePlayerCount available right now.
                 @if (_pausedPlayerCount > 0)
                 {
@@ -136,6 +148,7 @@
     private bool _resumeIfEndGameCancelled;
     private int _availablePlayerCount;
     private int _pausedPlayerCount;
+    private int _requiredPlayerCount = 4;
     private MatchmakingPickResult? _pendingPick;
     EndGameModal popup = null!;
 
@@ -165,11 +178,12 @@
 
     private void PickGame()
     {
-        var pick = Allocation.ProposePickGame();
+        var pick = Allocation.ProposePickGame(Court);
         if (pick is null)
         {
             _availablePlayerCount = Allocation.GetAvailableWaitingPlayers().Count;
             _pausedPlayerCount = Allocation.Waiting.Count(p => p.IsPaused);
+            _requiredPlayerCount = 4 - Court.FilledCount;
             _showNotEnoughPlayers = true;
             return;
         }
@@ -247,11 +261,9 @@
 
     private void HandleWaitforPlayers()
     {
-        // Discard draft; court already cleared if coming from EndGame
+        // Discard the draft only. Existing court state is left untouched.
         _resumeIfEndGameCancelled = false;
         _pendingPick = null;
-        if (Court.FilledCount > 0)
-            Allocation.ClearCourt(Court);
         _showEndGame = false;
     }
 

@@ -21,7 +21,11 @@
         <button class="chip__pause-btn" title="@(Player.IsPaused ? "Resume" : "Pause")" @onclick="TogglePause" @onclick:stopPropagation>
             @(Player.IsPaused ? "▶" : "⏸")
         </button>
-        <button class="chip__remove" title="Remove player" aria-label="Remove @Player.Name" @onclick="AskRemove" @onclick:stopPropagation>&times;</button>
+        <button class="chip__remove" title="Remove player" aria-label="Remove @Player.Name" @onclick="AskRemove" @onclick:stopPropagation>
+            <svg class="chip__remove-icon" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                <path d="M2.1 2.1l7.8 7.8M9.9 2.1L2.1 9.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+        </button>
     }
 
     @if (ShowRemove && !Player.IsPaused)
