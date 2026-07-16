@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using RallyBoard.Data;
@@ -41,6 +42,7 @@ builder.Services.AddDbContextFactory<RallyBoardDbContext>(options => options.Use
 
 builder.Services.AddDbContext<RallyBoardDbContext>(options => options.UseNpgsql(conn));
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection(AdminOptions.SectionName));
+builder.Services.AddScoped<ProtectedLocalStorage>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddSingleton<MatchmakingSettingsService>();
 builder.Services.AddSingleton<MatchmakingService>();

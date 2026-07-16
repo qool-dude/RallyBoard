@@ -4,7 +4,9 @@
 @inject NavigationManager Nav
 @implements IDisposable
 
-<div class="page @(Sessions.IsTestMode ? "page--test" : "page--live") @(Admin.IsAdmin ? "page--admin" : "")">
+<div class="page @(Sessions.IsTestMode ? "page--test" : "page--live") @(Admin.IsAdmin ? "page--admin" : "")"
+     @onclick="OnUserActivity"
+     @onkeydown="OnUserActivity">
     <header class="site-header">
         <div class="site-header__inner">
             <a href="/" class="brand">
@@ -78,13 +80,47 @@
         }
     }
 
-    protected override void OnInitialized()
+    private System.Threading.Timer? _activityTimer;
+
+    protected override async Task OnInitializedAsync()
     {
         Sessions.OnChange += Refresh;
         Sessions.ModeChanged += Refresh;
         Admin.OnChange += OnAdminChanged;
         Nav.LocationChanged += OnLocationChanged;
+
+        _activityTimer = new System.Threading.Timer(
+            _ => _ = InvokeAsync(CheckAdminActivityAsync),
+            null,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        await Admin.EnsureValidAsync();
         EnforceAdminGate();
+        StateHasChanged();
+    }
+
+    private async Task CheckAdminActivityAsync()
+    {
+        await Admin.EnsureValidAsync();
+        EnforceAdminGate();
+        StateHasChanged();
+    }
+
+    private void OnUserActivity() => _ = InvokeAsync(RecordUserActivityAsync);
+
+    private async Task RecordUserActivityAsync()
+    {
+        if (!Admin.IsAdmin)
+            return;
+
+        await Admin.TouchAsync();
     }
 
     private void SetMode(bool isTest) => Sessions.SetTestMode(isTest);
@@ -97,8 +133,13 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        EnforceAdminGate();
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await Admin.EnsureValidAsync();
+            await Admin.TouchAsync();
+            EnforceAdminGate();
+            StateHasChanged();
+        });
     }
 
     private void EnforceAdminGate()
@@ -111,6 +152,7 @@
 
     public void Dispose()
     {
+        _activityTimer?.Dispose();
         Sessions.OnChange -= Refresh;
         Sessions.ModeChanged -= Refresh;
         Admin.OnChange -= OnAdminChanged;

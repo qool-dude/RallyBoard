@@ -181,19 +181,19 @@
         _adminError = "";
     }
 
-    private void OnAdminPasswordInput(ChangeEventArgs e)
+    private async Task OnAdminPasswordInput(ChangeEventArgs e)
     {
         _adminPassword = e.Value?.ToString() ?? "";
         _adminError = "";
 
         // Accept as soon as the correct password is fully typed
-        if (Admin.TryLogin(_adminPassword))
+        if (await Admin.TryLoginAsync(_adminPassword))
             CancelAdminLogin();
     }
 
-    private void SubmitAdminLogin()
+    private async Task SubmitAdminLogin()
     {
-        if (Admin.TryLogin(_adminPassword))
+        if (await Admin.TryLoginAsync(_adminPassword))
         {
             CancelAdminLogin();
             return;
@@ -204,10 +204,10 @@
         _focusAdminPassword = true;
     }
 
-    private void ExitAdmin()
+    private async Task ExitAdmin()
     {
         CloseOverflow();
-        Admin.Logout();
+        await Admin.LogoutAsync();
     }
 
     private void AskConfirm(ConfirmAction action) => _pending = action;
