@@ -116,8 +116,8 @@ namespace RallyBoard.Services
         public void MarkPlayerWaiting(Player p)
         {
             if (p is null) return;
-            if (p.WaitingSince is not null) return; // already waiting)
-            p.WaitingSince = DateTime.UtcNow;
+            if (p.WaitingSince is null)
+                p.WaitingSince = DateTime.UtcNow;
             p.IsPaused = false;
             p.PausedAt = null;
             p.PausedAccumulated = TimeSpan.Zero;
@@ -598,7 +598,8 @@ namespace RallyBoard.Services
             using var db = _dbFactory.CreateDbContext();
             var player = db.Players.AsNoTracking().FirstOrDefault(p => p.Id == playerId);
             if (player is null) return;
-            player.WaitingSince = DateTime.UtcNow;
+            // Re-check-in always starts unpaused (DB may still have an old pause flag)
+            player.WaitingSince = null;
             MarkPlayerWaiting(player);
             Waiting.Add(player);
             _sessions.RecordAttendance(player.Id);
