@@ -135,9 +135,16 @@
             _menuOpen = false;
     }
 
-    private async Task OnDragStart()
+    private async Task OnDragStart(DragEventArgs e)
     {
-        if (!CanDrag) return;
+        if (!CanDrag)
+        {
+            e.DataTransfer.EffectAllowed = "none";
+            return;
+        }
+
+        e.DataTransfer.EffectAllowed = "move";
+
         if (DragStarted.HasDelegate)
             await DragStarted.InvokeAsync(Player);
         else

@@ -751,8 +751,18 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   cursor: grab;
   width: 100%;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.chip[draggable="true"] {
+  touch-action: none;
 }
 .chip:active { cursor: grabbing; }
+.chip--dragging { opacity: 0.35; }
+.chip--drag-avatar {
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,0.45);
+  touch-action: none;
+}
 .chip.chip--locked,
 .chip.chip--locked:active {
   cursor: default;
@@ -784,6 +794,13 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+.chip button,
+.chip__remove,
+.chip__menu-btn,
+.chip__pause-btn {
+  touch-action: manipulation;
+  -webkit-touch-callout: default;
 }
 .chip__remove {
   display: inline-flex;
