@@ -38,6 +38,12 @@ public record SessionStats(
     int PaidCount,
     int UnpaidCount);
 
+public record SessionAttendeeRow(
+    Guid PlayerId,
+    string Name,
+    int ColorIndex,
+    bool HasPaid);
+
 public record PlayerMatchStats(
     Guid PlayerId,
     string Name,

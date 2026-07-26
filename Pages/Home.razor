@@ -59,12 +59,13 @@
                 </div>
             </div>
             <div class="admin-bar__actions">
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="OpenPaidModal">Attendees Paid</button>
                 <button type="button" class="btn btn-ghost btn-sm" @onclick="ShuffleClick">Shuffle everyone</button>
                 <button type="button" class="btn btn-ghost btn-sm" @onclick="Allocation.StartAllTimers">Start all games</button>
                 <button type="button" class="btn btn-ghost btn-sm" @onclick="() => AskConfirm(ConfirmAction.Clear)">Clear all courts</button>
             </div>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" @onclick="ExitAdmin">Return to normal mode</button>
+        <button type="button" class="btn btn-ghost btn-sm" @onclick="ExitAdmin">Exit admin mode</button>
     </div>
 }
 
@@ -76,6 +77,65 @@
 </section>
 
 <WaitingPool />
+
+@if (_showPaidModal)
+{
+    <div class="modal-backdrop" @onclick="ClosePaidModal">
+        <div class="modal-panel paid-modal" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="paid-modal-title">
+            <div class="modal-panel__head">
+                <h3 id="paid-modal-title">Attendees Paid</h3>
+                <button type="button" class="modal-panel__close" @onclick="ClosePaidModal" aria-label="Close">&times;</button>
+            </div>
+            <div class="paid-modal__toolbar">
+                <div class="paid-modal__filters" role="group" aria-label="Payment filter">
+                    <button type="button"
+                            class="paid-modal__filter @(_paidFilter == "all" ? "is-active" : "")"
+                            @onclick='() => SetPaidFilter("all")'>All</button>
+                    <button type="button"
+                            class="paid-modal__filter @(_paidFilter == "paid" ? "is-active" : "")"
+                            @onclick='() => SetPaidFilter("paid")'>Paid</button>
+                    <button type="button"
+                            class="paid-modal__filter @(_paidFilter == "unpaid" ? "is-active" : "")"
+                            @onclick='() => SetPaidFilter("unpaid")'>Unpaid</button>
+                </div>
+                <span class="paid-modal__summary">
+                    @FilteredPaidAttendees.Count() shown
+                    · @_paidAttendees.Count(a => a.HasPaid) paid
+                    / @_paidAttendees.Count total
+                </span>
+            </div>
+            @if (_paidAttendees.Count == 0)
+            {
+                <p class="paid-modal__empty">No attendees in this session yet.</p>
+            }
+            else if (!FilteredPaidAttendees.Any())
+            {
+                <p class="paid-modal__empty">No players match this filter.</p>
+            }
+            else
+            {
+                <div class="paid-modal__list">
+                    @foreach (var attendee in FilteredPaidAttendees)
+                    {
+                        <label @key="attendee.PlayerId" class="paid-modal__row" title="@attendee.Name">
+                            <input type="checkbox"
+                                   checked="@attendee.HasPaid"
+                                   aria-label="@(attendee.HasPaid ? $"Mark {attendee.Name} unpaid" : $"Mark {attendee.Name} paid")"
+                                   @onchange="e => TogglePaid(attendee.PlayerId, (bool)(e.Value ?? false))" />
+                            <span class="attendance-row__avatar chip--@(attendee.ColorIndex % 6)">
+                                @GetInitials(attendee.Name)
+                            </span>
+                            <span class="paid-modal__name">@attendee.Name</span>
+                        </label>
+                    }
+                </div>
+            }
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-primary" @onclick="ClosePaidModal">Done</button>
+            </div>
+        </div>
+    </div>
+}
 
 @if (_showAdminLogin)
 {
@@ -135,7 +195,18 @@
     private bool _focusAdminPassword;
     private string _adminPassword = "";
     private string _adminError = "";
+    private bool _showPaidModal;
+    private string _paidFilter = "all";
+    private List<SessionAttendeeRow> _paidAttendees = new();
     private ElementReference _adminPasswordInput;
+
+    private IEnumerable<SessionAttendeeRow> FilteredPaidAttendees =>
+        _paidFilter switch
+        {
+            "paid" => _paidAttendees.Where(a => a.HasPaid),
+            "unpaid" => _paidAttendees.Where(a => !a.HasPaid),
+            _ => _paidAttendees
+        };
 
     protected override void OnInitialized()
     {
@@ -145,6 +216,35 @@
         Admin.OnChange += Refresh;
         RefreshSession();
     }
+
+    private void OpenPaidModal()
+    {
+        _paidFilter = "all";
+        LoadPaidAttendees();
+        _showPaidModal = true;
+    }
+
+    private void ClosePaidModal() => _showPaidModal = false;
+
+    private void SetPaidFilter(string filter) => _paidFilter = filter;
+
+    private void LoadPaidAttendees()
+    {
+        _paidAttendees = Sessions.GetSessionAttendees(Sessions.CurrentSessionId);
+    }
+
+    private async Task TogglePaid(Guid playerId, bool hasPaid)
+    {
+        Sessions.SetHasPaid(Sessions.CurrentSessionId, playerId, hasPaid);
+        if (_paidFilter is "paid" or "unpaid")
+            await Task.Yield();
+        LoadPaidAttendees();
+    }
+
+    private static string GetInitials(string name) =>
+        string.Join("", name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Take(2)
+            .Select(w => char.ToUpper(w[0])));
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -268,6 +368,8 @@
         _sessionName = string.IsNullOrWhiteSpace(session.Name)
             ? session.Date.ToString("ddd d MMM yyyy")
             : session.Name;
+        if (_showPaidModal)
+            LoadPaidAttendees();
         InvokeAsync(StateHasChanged);
     }
 

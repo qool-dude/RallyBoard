@@ -366,9 +366,16 @@ namespace RallyBoard.Services
                 return;
             }
 
+            var sourceCourts = Courts
+                .Where(c => c.Id != court.Id && c.Slots.Any(s => s?.Id == _draggedPlayer.Id))
+                .ToList();
+
             RemovePlayerFromAllLocations(_draggedPlayer);
             court.Slots[slotIndex] = _draggedPlayer;
             _draggedPlayer = null;
+            MarkCourtLineupChanged(court);
+            foreach (var source in sourceCourts)
+                MarkCourtLineupChanged(source);
 
             PersistState();
             OnChange?.Invoke();
@@ -390,8 +397,15 @@ namespace RallyBoard.Services
                 return;
             }
 
+            var sourceCourts = Courts
+                .Where(c => c.Id != court.Id && c.Slots.Any(s => s?.Id == player.Id))
+                .ToList();
+
             RemovePlayerFromAllLocations(player);
             court.Slots[slotIndex] = player;
+            MarkCourtLineupChanged(court);
+            foreach (var source in sourceCourts)
+                MarkCourtLineupChanged(source);
 
             PersistState();
             OnChange?.Invoke();
@@ -424,6 +438,10 @@ namespace RallyBoard.Services
                 return;
             }
 
+            var affectedCourts = Courts
+                .Where(c => c.Slots.Any(s => s?.Id == _draggedPlayer.Id))
+                .ToList();
+
             // Remove from courts
             RemovePlayerFromAllLocations(_draggedPlayer);
 
@@ -433,6 +451,9 @@ namespace RallyBoard.Services
                 MarkPlayerWaiting(_draggedPlayer);
                 Waiting.Add(_draggedPlayer);
             }
+
+            foreach (var court in affectedCourts)
+                MarkCourtLineupChanged(court);
 
             _draggedPlayer = null;
 
@@ -445,8 +466,15 @@ namespace RallyBoard.Services
             if (IsPlayerOnLockedCourt(player))
                 return;
 
+            var affectedCourts = Courts
+                .Where(c => c.Slots.Any(s => s?.Id == player.Id))
+                .ToList();
+
             // Remove player from courts and waiting
             RemovePlayerFromAllLocations(player);
+
+            foreach (var court in affectedCourts)
+                MarkCourtLineupChanged(court);
 
             // Note: we don't delete from DB automatically; just remove from in-memory state
             PersistState();
@@ -530,6 +558,11 @@ namespace RallyBoard.Services
                     court2.Slots[slot2] = player1;
                 }
             }
+
+            if (pos1 is (Court c1, _))
+                MarkCourtLineupChanged(c1);
+            if (pos2 is (Court c2, _) && (pos1 is not (Court same, _) || same.Id != c2.Id))
+                MarkCourtLineupChanged(c2);
 
             PersistState();
             OnChange?.Invoke();
@@ -648,6 +681,8 @@ namespace RallyBoard.Services
                 }
             }
 
+            court.PendingMatchmaking = null;
+
             PersistState();
             OnChange?.Invoke();
         }
@@ -700,6 +735,7 @@ namespace RallyBoard.Services
 
             if (gamePlayers.Count > 0)
             {
+                var matchmaking = ResolveMatchmakingForRecord(court);
                 _sessions.RecordGame(
                     court.Id,
                     winner,
@@ -707,7 +743,7 @@ namespace RallyBoard.Services
                     teamBScore,
                     duration,
                     gamePlayers,
-                    court.PendingMatchmaking);
+                    matchmaking);
             }
 
             for (int i = 0; i < court.Slots.Length; i++)
@@ -797,6 +833,193 @@ namespace RallyBoard.Services
                     p.WaitingSince = null;
                 }
             }
+        }
+
+        private void MarkCourtLineupChanged(Court court)
+        {
+            if (court is null) return;
+
+            if (court.FilledCount == 0)
+            {
+                court.PendingMatchmaking = null;
+                return;
+            }
+
+            court.PendingMatchmaking = ResolveDecisionForSlots(court.Slots, court.PendingMatchmaking);
+        }
+
+        /// <summary>
+        /// Keeps an auto pick when only team/slot positions changed; marks Manual when players change.
+        /// </summary>
+        public MatchmakingDecision ResolveDecisionForSlots(Player?[] slots, MatchmakingDecision? pending)
+        {
+            if (pending is null ||
+                pending.Algorithm == MatchmakingAlgorithms.Manual ||
+                pending.Chosen.Count == 0)
+            {
+                return CreateManualDecision(slots);
+            }
+
+            if (LineupMatchesDecision(slots, pending))
+                return pending;
+
+            if (SamePlayerSet(slots, pending))
+                return WithTeamsChanged(pending, slots);
+
+            return CreateManualDecision(slots);
+        }
+
+        public MatchmakingDecision CreateManualDecision(Player?[] slots)
+        {
+            var ratings = _matchmaking.GetGlobalRatings(_sessions.IsTestMode)
+                .ToDictionary(r => r.PlayerId, r => r.Rating);
+            var defaultRating = _matchmaking.Options.Rating.DefaultRating;
+            var topPercentile = Math.Clamp(_matchmaking.Options.Selection.TopPlayerPercentile, 0.05, 1);
+
+            double RatingOf(Player p) =>
+                ratings.TryGetValue(p.Id, out var rating) ? rating : defaultRating;
+
+            var chosenPlayers = slots.OfType<Player>().ToList();
+            var poolPlayers = Waiting
+                .Where(p => !p.IsPaused)
+                .Concat(chosenPlayers)
+                .DistinctBy(p => p.Id)
+                .OrderByDescending(p => p.GetWaitingElapsed())
+                .ToList();
+
+            var orderedRatings = poolPlayers.Select(RatingOf).OrderByDescending(r => r).ToList();
+            var strongPoolSize = Math.Max(1, (int)Math.Ceiling(poolPlayers.Count * topPercentile));
+            var topThreshold = poolPlayers.Count == 0
+                ? 0
+                : orderedRatings[Math.Min(orderedRatings.Count - 1, strongPoolSize - 1)];
+            var topIds = poolPlayers.Where(p => RatingOf(p) >= topThreshold).Select(p => p.Id).ToHashSet();
+
+            var pool = poolPlayers.Select(p => new MatchmakingPlayerSnapshot
+            {
+                PlayerId = p.Id,
+                Name = p.Name,
+                Rating = Math.Round(RatingOf(p), 1),
+                WaitingSeconds = Math.Round(p.GetWaitingElapsed().TotalSeconds),
+                IsTopPlayer = topIds.Contains(p.Id)
+            }).ToList();
+
+            var chosen = new List<MatchmakingPlayerSnapshot>();
+            for (var i = 0; i < slots.Length; i++)
+            {
+                if (slots[i] is not Player player) continue;
+                chosen.Add(new MatchmakingPlayerSnapshot
+                {
+                    PlayerId = player.Id,
+                    Name = player.Name,
+                    Rating = Math.Round(RatingOf(player), 1),
+                    WaitingSeconds = Math.Round(player.GetWaitingElapsed().TotalSeconds),
+                    IsTopPlayer = topIds.Contains(player.Id),
+                    TeamSide = i < 2 ? "TeamA" : "TeamB"
+                });
+            }
+
+            return new MatchmakingDecision
+            {
+                PickedAt = DateTime.UtcNow,
+                WaitingPoolSize = pool.Count,
+                Algorithm = MatchmakingAlgorithms.Manual,
+                DominantFactor = "Manual",
+                Summary = "Lineup was set or adjusted manually.",
+                Pool = pool,
+                Chosen = chosen
+            };
+        }
+
+        public static bool LineupMatchesDecision(Player?[] slots, MatchmakingDecision decision)
+        {
+            if (decision.Chosen.Count == 0)
+                return false;
+
+            if (decision.Chosen.Count != slots.Count(s => s is not null))
+                return false;
+
+            // Prefer positional match when we have a full 4-slot snapshot
+            if (decision.Chosen.Count == 4 && slots.Length >= 4)
+            {
+                for (var i = 0; i < 4; i++)
+                {
+                    if (slots[i]?.Id != decision.Chosen[i].PlayerId)
+                        return false;
+                }
+                return true;
+            }
+
+            var slotIds = slots.OfType<Player>().Select(p => p.Id).OrderBy(id => id);
+            var chosenIds = decision.Chosen.Select(c => c.PlayerId).OrderBy(id => id);
+            return slotIds.SequenceEqual(chosenIds);
+        }
+
+        public static bool SamePlayerSet(Player?[] slots, MatchmakingDecision decision)
+        {
+            var slotIds = slots.OfType<Player>().Select(p => p.Id).OrderBy(id => id).ToList();
+            var chosenIds = decision.Chosen.Select(c => c.PlayerId).OrderBy(id => id).ToList();
+            return slotIds.Count > 0 &&
+                   slotIds.Count == chosenIds.Count &&
+                   slotIds.SequenceEqual(chosenIds);
+        }
+
+        public static MatchmakingDecision WithTeamsChanged(MatchmakingDecision original, Player?[] slots)
+        {
+            var byId = original.Chosen.ToDictionary(c => c.PlayerId);
+            var chosen = new List<MatchmakingPlayerSnapshot>();
+            for (var i = 0; i < slots.Length; i++)
+            {
+                if (slots[i] is not Player player) continue;
+                if (!byId.TryGetValue(player.Id, out var snap))
+                    continue;
+
+                chosen.Add(new MatchmakingPlayerSnapshot
+                {
+                    PlayerId = snap.PlayerId,
+                    Name = snap.Name,
+                    Rating = snap.Rating,
+                    WaitingSeconds = snap.WaitingSeconds,
+                    IsTopPlayer = snap.IsTopPlayer,
+                    TeamSide = i < 2 ? "TeamA" : "TeamB"
+                });
+            }
+
+            const string note = "Teams were changed after the pick.";
+            var summary = original.Summary ?? "";
+            if (!summary.Contains("Teams were changed", StringComparison.OrdinalIgnoreCase))
+                summary = string.IsNullOrWhiteSpace(summary) ? note : $"{summary.TrimEnd()} {note}";
+
+            return new MatchmakingDecision
+            {
+                PickedAt = original.PickedAt,
+                WaitingPoolSize = original.WaitingPoolSize,
+                CandidatesConsidered = original.CandidatesConsidered,
+                RankAmongCandidates = original.RankAmongCandidates,
+                UsedRandomness = original.UsedRandomness,
+                TotalScore = original.TotalScore,
+                WaitingScore = original.WaitingScore,
+                MixingScore = original.MixingScore,
+                BalanceScore = original.BalanceScore,
+                PeerScore = original.PeerScore,
+                HomogeneityScore = original.HomogeneityScore,
+                WaitingWeight = original.WaitingWeight,
+                MixingWeight = original.MixingWeight,
+                BalanceWeight = original.BalanceWeight,
+                PeerWeight = original.PeerWeight,
+                HomogeneityWeight = original.HomogeneityWeight,
+                Algorithm = original.Algorithm,
+                DominantFactor = original.DominantFactor,
+                Summary = summary,
+                TeamsChanged = true,
+                Pool = original.Pool,
+                Chosen = chosen,
+                Alternatives = original.Alternatives
+            };
+        }
+
+        private MatchmakingDecision ResolveMatchmakingForRecord(Court court)
+        {
+            return ResolveDecisionForSlots(court.Slots, court.PendingMatchmaking);
         }
 
         private bool IsPlayerOnLockedCourt(Player player)

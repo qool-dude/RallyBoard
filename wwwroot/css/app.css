@@ -337,6 +337,109 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   gap: 0.4rem;
 }
 
+.paid-modal {
+  width: min(1360px, 98vw);
+  max-height: min(90vh, 820px);
+  display: flex;
+  flex-direction: column;
+}
+.paid-modal__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0 1.2rem 0.75rem;
+}
+.paid-modal__filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: rgba(11, 32, 39, 0.06);
+  border-radius: 999px;
+}
+.paid-modal__filter {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(11, 32, 39, 0.55);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.paid-modal__filter.is-active {
+  background: #fff;
+  color: var(--court-dark);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.paid-modal__summary {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(11, 32, 39, 0.55);
+}
+.paid-modal__list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 2.65rem;
+  align-content: start;
+  gap: 0.35rem 1.25rem;
+  padding: 0 1.4rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(10 * 2.65rem + 9 * 0.35rem);
+}
+.paid-modal__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  height: 2.65rem;
+  padding: 0.3rem 0.05rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.paid-modal__row:hover {
+  background: var(--bg);
+}
+.paid-modal__row input {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  accent-color: #2FA37F;
+  cursor: pointer;
+}
+.paid-modal__row .attendance-row__avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 0.65rem;
+}
+.paid-modal__name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.98rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paid-modal__empty {
+  padding: 0.5rem 1.2rem 1rem;
+  color: rgba(11, 32, 39, 0.55);
+  font-size: 0.9rem;
+}
+@media (max-width: 720px) {
+  .paid-modal__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .admin-login-form {
   display: flex;
   flex-direction: column;
@@ -1959,6 +2062,9 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 }
 .pick-card__badge--factor { background: var(--accent-dim); color: var(--accent); }
 .pick-card__badge--algo { background: rgba(20,92,107,0.12); color: var(--court-dark); }
+.pick-card__badge--teams { background: rgba(244, 196, 48, 0.22); color: #8a6a00; }
+.pick-card__badge--algo:is([data-algo="Manual"]),
+.pick-card--manual .pick-card__badge--algo { background: rgba(232, 93, 156, 0.14); color: #b8326e; }
 .pick-card__lineup { font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline; }
 .pick-card__vs { color: rgba(11,32,39,0.4); font-size: 0.8rem; }
 .pick-card__score-row {

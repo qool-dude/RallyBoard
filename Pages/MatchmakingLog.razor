@@ -43,7 +43,7 @@
             @foreach (var row in _explanations)
             {
                 var expanded = _expandedId == row.Id;
-                <article class="pick-card @(expanded ? "pick-card--open" : "")">
+                <article class="pick-card @(expanded ? "pick-card--open" : "") @(row.Algorithm == MatchmakingAlgorithms.Manual ? "pick-card--manual" : "")">
                     <button type="button" class="pick-card__head" @onclick="() => Toggle(row.Id)">
                         <div class="pick-card__meta">
                             <span class="pick-card__court">Court @row.CourtId</span>
@@ -56,7 +56,14 @@
                             {
                                 <span class="pick-card__badge">randomised</span>
                             }
-                            <span class="pick-card__badge pick-card__badge--factor">@row.DominantFactor</span>
+                            @if (row.TeamsChanged)
+                            {
+                                <span class="pick-card__badge pick-card__badge--teams">teams changed</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(row.DominantFactor) && row.Algorithm != MatchmakingAlgorithms.Manual)
+                            {
+                                <span class="pick-card__badge pick-card__badge--factor">@row.DominantFactor</span>
+                            }
                         </div>
                         <div class="pick-card__lineup">
                             <span class="data-table__winner">@row.TeamANames</span>
@@ -64,9 +71,16 @@
                             <span>@row.TeamBNames</span>
                         </div>
                         <div class="pick-card__score-row">
-                            <span>Total @row.TotalScore.ToString("0.#")</span>
-                            <span>Rank #@row.RankAmongCandidates / @row.CandidatesConsidered</span>
-                            <span>Pool @row.WaitingPoolSize</span>
+                            @if (row.Algorithm == MatchmakingAlgorithms.Manual)
+                            {
+                                <span>Manual lineup</span>
+                            }
+                            else
+                            {
+                                <span>Total @row.TotalScore.ToString("0.#")</span>
+                                <span>Rank #@row.RankAmongCandidates / @row.CandidatesConsidered</span>
+                                <span>Pool @row.WaitingPoolSize</span>
+                            }
                             <span class="pick-card__chevron">@(expanded ? "▾" : "▸")</span>
                         </div>
                     </button>
@@ -76,23 +90,26 @@
                         <div class="pick-card__body">
                             <p class="pick-card__summary">@row.Summary</p>
 
-                            <h3 class="pick-card__section-title">Factor scores</h3>
-                            <div class="factor-bars">
-                                @foreach (var factor in FactorBars(row))
-                                {
-                                    <div class="factor-bar">
-                                        <div class="factor-bar__label">
-                                            <span>@factor.Name</span>
-                                            <span>@factor.Score.ToString("0.#") · weight @factor.Weight.ToString("0.##") · contrib @factor.Contribution.ToString("0.#")</span>
+                            @if (row.Algorithm != MatchmakingAlgorithms.Manual)
+                            {
+                                <h3 class="pick-card__section-title">Factor scores</h3>
+                                <div class="factor-bars">
+                                    @foreach (var factor in FactorBars(row))
+                                    {
+                                        <div class="factor-bar">
+                                            <div class="factor-bar__label">
+                                                <span>@factor.Name</span>
+                                                <span>@factor.Score.ToString("0.#") · weight @factor.Weight.ToString("0.##") · contrib @factor.Contribution.ToString("0.#")</span>
+                                            </div>
+                                            <div class="factor-bar__track">
+                                                <div class="factor-bar__fill factor-bar__fill--@factor.Key" style="width: @(factor.Score)%"></div>
+                                            </div>
                                         </div>
-                                        <div class="factor-bar__track">
-                                            <div class="factor-bar__fill factor-bar__fill--@factor.Key" style="width: @(factor.Score)%"></div>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
+                                    }
+                                </div>
+                            }
 
-                            <h3 class="pick-card__section-title">Chosen lineup (ratings at pick)</h3>
+                            <h3 class="pick-card__section-title">@(row.Algorithm == MatchmakingAlgorithms.Manual ? "Lineup" : "Chosen lineup (ratings at pick)")</h3>
                             <div class="pick-players">
                                 @foreach (var p in row.Chosen)
                                 {
@@ -121,7 +138,7 @@
                                 }
                             </div>
 
-                            @if (row.Alternatives.Count > 1)
+                            @if (row.Algorithm != MatchmakingAlgorithms.Manual && row.Alternatives.Count > 1)
                             {
                                 <h3 class="pick-card__section-title">Top alternatives considered</h3>
                                 <div class="table-wrap">

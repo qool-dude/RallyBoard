@@ -104,4 +104,5 @@ public static class MatchmakingAlgorithms
 {
     public const string Balanced = "Balanced";
     public const string Ability = "Ability";
+    public const string Manual = "Manual";
 }

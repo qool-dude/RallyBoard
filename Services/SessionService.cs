@@ -254,6 +254,7 @@ public class SessionService
                 Algorithm = matchmaking.Algorithm,
                 DominantFactor = matchmaking.DominantFactor,
                 Summary = matchmaking.Summary,
+                TeamsChanged = matchmaking.TeamsChanged,
                 DetailsJson = details
             });
         }
@@ -545,6 +546,7 @@ public class SessionService
                     m.CandidatesConsidered,
                     m.RankAmongCandidates,
                     m.UsedRandomness,
+                    m.TeamsChanged,
                     details.Pool,
                     details.Chosen,
                     details.Alternatives);
@@ -592,6 +594,23 @@ public class SessionService
             .Where(a => a.SessionId == sessionId)
             .Select(a => a.PlayerId)
             .ToHashSet();
+    }
+
+    public List<SessionAttendeeRow> GetSessionAttendees(Guid sessionId)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        return db.SessionAttendances
+            .AsNoTracking()
+            .Where(a => a.SessionId == sessionId)
+            .Include(a => a.Player)
+            .AsEnumerable()
+            .OrderBy(a => a.Player.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(a => new SessionAttendeeRow(
+                a.PlayerId,
+                a.Player.Name,
+                a.Player.ColorIndex,
+                a.HasPaid))
+            .ToList();
     }
 
     private Session CreateSession(RallyBoardDbContext db, string name, bool isTest)

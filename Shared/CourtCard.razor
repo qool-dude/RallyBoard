@@ -271,7 +271,20 @@
     {
         _resumeIfEndGameCancelled = false;
         if (_pendingPick is not null)
-            Allocation.ApplyPickGame(Court, _pendingPick, startTimer: true);
+        {
+            var pick = _pendingPick;
+            var decision = Allocation.ResolveDecisionForSlots(pick.Slots, pick.Decision);
+            if (!ReferenceEquals(decision, pick.Decision))
+            {
+                pick = new MatchmakingPickResult
+                {
+                    Slots = pick.Slots,
+                    Decision = decision
+                };
+            }
+
+            Allocation.ApplyPickGame(Court, pick, startTimer: true);
+        }
         else if (Court.FilledCount >= 2 && !Court.IsRunning)
             Allocation.ToggleTimer(Court);
 

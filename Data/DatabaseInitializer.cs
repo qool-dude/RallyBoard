@@ -79,6 +79,7 @@ public static class DatabaseInitializer
                 "Algorithm" text NOT NULL DEFAULT '',
                 "DominantFactor" text NOT NULL DEFAULT '',
                 "Summary" text NOT NULL DEFAULT '',
+                "TeamsChanged" boolean NOT NULL DEFAULT false,
                 "DetailsJson" text NOT NULL DEFAULT '{{}}'
             );
             CREATE INDEX IF NOT EXISTS "IX_MatchmakingExplanations_SessionId" ON "MatchmakingExplanations" ("SessionId");
@@ -87,6 +88,7 @@ public static class DatabaseInitializer
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityScore" double precision NOT NULL DEFAULT 0;
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "HomogeneityWeight" double precision NOT NULL DEFAULT 0;
             ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "Algorithm" text NOT NULL DEFAULT '';
+            ALTER TABLE "MatchmakingExplanations" ADD COLUMN IF NOT EXISTS "TeamsChanged" boolean NOT NULL DEFAULT false;
 
             CREATE TABLE IF NOT EXISTS "AppSettings" (
                 "Key" text NOT NULL PRIMARY KEY,

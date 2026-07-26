@@ -33,6 +33,9 @@ public class MatchmakingDecision
     public string DominantFactor { get; set; } = "";
     public string Summary { get; set; } = "";
 
+    /// <summary>True when the same foursome was kept but team/slot positions were changed after the pick.</summary>
+    public bool TeamsChanged { get; set; }
+
     public List<MatchmakingPlayerSnapshot> Pool { get; set; } = new();
     public List<MatchmakingPlayerSnapshot> Chosen { get; set; } = new();
     public List<MatchmakingAlternative> Alternatives { get; set; } = new();
@@ -95,6 +98,8 @@ public class MatchmakingExplanation
     public string DominantFactor { get; set; } = "";
     public string Summary { get; set; } = "";
 
+    public bool TeamsChanged { get; set; }
+
     /// <summary>JSON: pool snapshots, chosen players, alternatives.</summary>
     public string DetailsJson { get; set; } = "{}";
 }
@@ -128,6 +133,7 @@ public record MatchmakingExplanationRow(
     int CandidatesConsidered,
     int RankAmongCandidates,
     bool UsedRandomness,
+    bool TeamsChanged,
     List<MatchmakingPlayerSnapshot> Pool,
     List<MatchmakingPlayerSnapshot> Chosen,
     List<MatchmakingAlternative> Alternatives);
