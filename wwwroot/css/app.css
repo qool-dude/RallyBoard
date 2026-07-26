@@ -881,6 +881,7 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   box-shadow: 0 0 0 2px var(--accent) inset, 0 4px 10px -6px rgba(0,0,0,0.4);
 }
 .chip__avatar {
+  position: relative;
   width: 30px; height: 30px;
   border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
@@ -888,6 +889,26 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
+}
+.chip__paid {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #2FA37F;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1.5px #fff;
+  pointer-events: none;
+}
+.chip__paid svg {
+  width: 8px;
+  height: 8px;
+  display: block;
 }
 .chip__name {
   font-size: 0.98rem;

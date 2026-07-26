@@ -1,4 +1,5 @@
 @inject CourtAllocationService Allocation
+@inject SessionService Sessions
 @implements IDisposable
 
 <div class="chip chip--@(Player.ColorIndex % 6) @(IsWaiting ? "chip--waiting" : "") @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "") @(Locked ? "chip--locked" : "") @(Player.IsPaused ? "chip--paused" : "")"
@@ -13,7 +14,17 @@
     {
         <div class="chip-menu-backdrop" @onclick="CloseMenu" @onmousedown:preventDefault></div>
     }
-    <span class="chip__avatar">@Player.Initials</span>
+    <span class="chip__avatar">
+        @Player.Initials
+        @if (Sessions.IsPaid(Player.Id))
+        {
+            <span class="chip__paid" title="Paid" aria-label="Paid">
+                <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                    <path d="M2.4 6.2l2.4 2.4 4.8-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </span>
+        }
+    </span>
     <span class="chip__name">@Player.Name</span>
     @if (IsWaiting)
     {
@@ -256,7 +267,10 @@
         Allocation.Tick += OnTick;
         Allocation.OnChange += OnBoardChanged;
         Allocation.ChipMenuOpening += OnOtherMenuOpening;
+        Sessions.OnChange += OnPaidChanged;
     }
+
+    private void OnPaidChanged() => InvokeAsync(StateHasChanged);
 
     private void OnOtherMenuOpening(Guid playerId)
     {
@@ -283,5 +297,6 @@
         Allocation.Tick -= OnTick;
         Allocation.OnChange -= OnBoardChanged;
         Allocation.ChipMenuOpening -= OnOtherMenuOpening;
+        Sessions.OnChange -= OnPaidChanged;
     }
 }

@@ -10,6 +10,8 @@ public class SessionService
     private readonly MatchmakingSettingsService _matchmakingSettings;
     private readonly MatchmakingService _matchmakingService;
     private Guid? _currentSessionId;
+    private HashSet<Guid>? _paidPlayerIds;
+    private Guid? _paidCacheSessionId;
 
     public event Action? OnChange;
     public event Action? SessionStarted;
@@ -40,6 +42,7 @@ public class SessionService
         if (IsTestMode == isTest) return;
         IsTestMode = isTest;
         _currentSessionId = GetOrCreateCurrentSessionId();
+        InvalidatePaidCache();
         ModeChanged?.Invoke();
         OnChange?.Invoke();
     }
@@ -93,6 +96,7 @@ public class SessionService
 
         var newSession = CreateSession(db, sessionName, IsTestMode);
         _currentSessionId = newSession.Id;
+        InvalidatePaidCache();
 
         SessionStarted?.Invoke();
         OnChange?.Invoke();
@@ -138,6 +142,7 @@ public class SessionService
         }
 
         _currentSessionId = replacement.Id;
+        InvalidatePaidCache();
         SessionStarted?.Invoke();
         OnChange?.Invoke();
         return replacement.Id;
@@ -286,6 +291,7 @@ public class SessionService
         }
 
         db.SaveChanges();
+        InvalidatePaidCache();
         OnChange?.Invoke();
     }
 
@@ -611,6 +617,33 @@ public class SessionService
                 a.Player.ColorIndex,
                 a.HasPaid))
             .ToList();
+    }
+
+    public bool IsPaid(Guid playerId)
+    {
+        EnsurePaidCache();
+        return _paidPlayerIds!.Contains(playerId);
+    }
+
+    private void EnsurePaidCache()
+    {
+        var sessionId = CurrentSessionId;
+        if (_paidPlayerIds is not null && _paidCacheSessionId == sessionId)
+            return;
+
+        using var db = _dbFactory.CreateDbContext();
+        _paidPlayerIds = db.SessionAttendances
+            .AsNoTracking()
+            .Where(a => a.SessionId == sessionId && a.HasPaid)
+            .Select(a => a.PlayerId)
+            .ToHashSet();
+        _paidCacheSessionId = sessionId;
+    }
+
+    private void InvalidatePaidCache()
+    {
+        _paidPlayerIds = null;
+        _paidCacheSessionId = null;
     }
 
     private Session CreateSession(RallyBoardDbContext db, string name, bool isTest)
