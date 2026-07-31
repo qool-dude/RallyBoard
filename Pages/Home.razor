@@ -196,7 +196,7 @@
     private string _adminPassword = "";
     private string _adminError = "";
     private bool _showPaidModal;
-    private string _paidFilter = "all";
+    private string _paidFilter = "unpaid";
     private List<SessionAttendeeRow> _paidAttendees = new();
     private ElementReference _adminPasswordInput;
 
@@ -219,7 +219,7 @@
 
     private void OpenPaidModal()
     {
-        _paidFilter = "all";
+        _paidFilter = "unpaid";
         LoadPaidAttendees();
         _showPaidModal = true;
     }

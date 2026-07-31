@@ -19,7 +19,7 @@
 
     <div class="dashboard__session-bar">
         <label class="dashboard__label" for="pick-session">Session</label>
-        <select id="pick-session" class="dashboard__select" @bind="_selectedKey" @bind:after="LoadData">
+        <select id="pick-session" class="dashboard__select" @bind="_selectedKey" @bind:after="OnSessionChanged">
             <option value="@AllSessionsKey">All sessions</option>
             @foreach (var session in _sessions)
             {
@@ -29,6 +29,23 @@
                 </option>
             }
         </select>
+
+        <label class="dashboard__label" for="pick-court">Court</label>
+        <select id="pick-court" class="dashboard__select" @bind="_courtFilterKey" @bind:after="OnFilterChanged">
+            <option value="@AllCourtsKey">All courts</option>
+            @foreach (var courtId in CourtFilterOptions)
+            {
+                <option value="@courtId.ToString()">Court @courtId</option>
+            }
+        </select>
+
+        <label class="dashboard__label" for="pick-algo">Algorithm</label>
+        <select id="pick-algo" class="dashboard__select" @bind="_algorithmFilter" @bind:after="OnFilterChanged">
+            <option value="@AllAlgorithmsKey">All</option>
+            <option value="@MatchmakingAlgorithms.Balanced">Balanced</option>
+            <option value="@MatchmakingAlgorithms.Ability">Ability</option>
+            <option value="@MatchmakingAlgorithms.Manual">Manual</option>
+        </select>
     </div>
 
     @if (_explanations.Count == 0)
@@ -37,10 +54,16 @@
             <p class="dashboard__empty">No matchmaking picks recorded yet. Use Pick Game or Shuffle — explanations are saved when a game ends.</p>
         </section>
     }
+    else if (!FilteredExplanations.Any())
+    {
+        <section class="dashboard-panel">
+            <p class="dashboard__empty">No picks match these filters.</p>
+        </section>
+    }
     else
     {
         <div class="pick-list">
-            @foreach (var row in _explanations)
+            @foreach (var row in FilteredExplanations)
             {
                 var expanded = _expandedId == row.Id;
                 <article class="pick-card @(expanded ? "pick-card--open" : "") @(row.Algorithm == MatchmakingAlgorithms.Manual ? "pick-card--manual" : "")">
@@ -133,7 +156,9 @@
                                     var chosen = row.Chosen.Any(c => c.PlayerId == p.PlayerId);
                                     <span class="pick-pool__chip @(chosen ? "pick-pool__chip--chosen" : "") @(p.IsTopPlayer ? "pick-pool__chip--top" : "")"
                                           title="Rating @p.Rating · waited @FormatWait(p.WaitingSeconds)">
-                                        @p.Name <em>@p.Rating</em>
+                                        @p.Name
+                                        <em>@p.Rating</em>
+                                        <span class="pick-pool__wait">@FormatWait(p.WaitingSeconds)</span>
                                     </span>
                                 }
                             </div>
@@ -181,11 +206,34 @@
 
 @code {
     private const string AllSessionsKey = "all";
+    private const string AllCourtsKey = "all";
+    private const string AllAlgorithmsKey = "all";
 
     private List<SessionSummaryRow> _sessions = new();
     private List<MatchmakingExplanationRow> _explanations = new();
     private string _selectedKey = AllSessionsKey;
+    private string _courtFilterKey = AllCourtsKey;
+    private string _algorithmFilter = AllAlgorithmsKey;
     private Guid? _expandedId;
+
+    private IEnumerable<MatchmakingExplanationRow> FilteredExplanations
+    {
+        get
+        {
+            IEnumerable<MatchmakingExplanationRow> rows = _explanations;
+
+            if (_courtFilterKey != AllCourtsKey && int.TryParse(_courtFilterKey, out var courtId))
+                rows = rows.Where(e => e.CourtId == courtId);
+
+            if (_algorithmFilter != AllAlgorithmsKey)
+                rows = rows.Where(e => string.Equals(e.Algorithm, _algorithmFilter, StringComparison.OrdinalIgnoreCase));
+
+            return rows;
+        }
+    }
+
+    private List<int> CourtFilterOptions =>
+        _explanations.Select(e => e.CourtId).Distinct().OrderBy(id => id).ToList();
 
     protected override void OnInitialized()
     {
@@ -199,9 +247,21 @@
     {
         _selectedKey = Sessions.CurrentSessionId.ToString();
         _expandedId = null;
+        _courtFilterKey = AllCourtsKey;
+        _algorithmFilter = AllAlgorithmsKey;
         LoadData();
         StateHasChanged();
     });
+
+    private void OnSessionChanged()
+    {
+        _courtFilterKey = AllCourtsKey;
+        _algorithmFilter = AllAlgorithmsKey;
+        _expandedId = null;
+        LoadData();
+    }
+
+    private void OnFilterChanged() => _expandedId = null;
 
     private void LoadData()
     {
@@ -210,6 +270,13 @@
             ? null
             : Guid.TryParse(_selectedKey, out var id) ? id : Sessions.CurrentSessionId;
         _explanations = Sessions.GetMatchmakingExplanations(sessionId);
+
+        if (_courtFilterKey != AllCourtsKey &&
+            int.TryParse(_courtFilterKey, out var selected) &&
+            _explanations.All(e => e.CourtId != selected))
+        {
+            _courtFilterKey = AllCourtsKey;
+        }
     }
 
     private void Toggle(Guid id) => _expandedId = _expandedId == id ? null : id;

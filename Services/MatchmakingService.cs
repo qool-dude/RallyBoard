@@ -156,11 +156,24 @@ public class MatchmakingService
         var maxWait = waiting.Max(p => p.GetWaitingElapsed().TotalSeconds);
         if (maxWait <= 0) maxWait = 1;
 
+        // Always include the longest waiter when they've waited more than 1 minute
+        // (unless they're already fixed on court).
+        var longestWaiter = waiting
+            .OrderByDescending(p => p.GetWaitingElapsed())
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .First();
+        var mustIncludeLongest =
+            longestWaiter.GetWaitingElapsed() > TimeSpan.FromMinutes(1) &&
+            fixedPlayers.All(f => f.Id != longestWaiter.Id);
+
         var balanceBias = useAbility ? 0.85 : 0.6;
         var candidates = new List<(Player[] Slots, double Score, double Wait, double Mix, double Bal, double Peer, double Hom, bool IsRepeat)>();
 
         foreach (var selected in Combinations(waiting, slotsToFill))
         {
+            if (mustIncludeLongest && selected.All(p => p.Id != longestWaiter.Id))
+                continue;
+
             var quartet = fixedPlayers.Concat(selected).ToArray();
             var waitScore = selected.Average(p => p.GetWaitingElapsed().TotalSeconds / maxWait) * 100;
             var peerScore = PeerQualityScore(quartet, RatingOf, topIds, sel.TopClusterBonus);
@@ -183,13 +196,15 @@ public class MatchmakingService
             return null;
 
         // Anyone who has not yet played this session gets priority for the
-        // remaining empty positions.
+        // remaining empty positions — but never at the expense of the longest waiter.
         var requiredFirstGamePlayers = Math.Min(slotsToFill, firstGamePlayerIds.Count);
         var priorityCandidates = requiredFirstGamePlayers == 0
             ? candidates
             : candidates
                 .Where(c => c.Slots.Count(p => firstGamePlayerIds.Contains(p.Id)) == requiredFirstGamePlayers)
                 .ToList();
+        if (priorityCandidates.Count == 0)
+            priorityCandidates = candidates;
 
         // Prefer never-before-seen foursomes this session; only reuse if nothing else left
         var fresh = priorityCandidates.Where(c => !c.IsRepeat).ToList();

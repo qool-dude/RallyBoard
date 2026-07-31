@@ -230,7 +230,6 @@
     private string? Winner { get; set; }
     private int? _teamAScore;
     private int? _teamBScore;
-    private bool _scoresTouched;
     private bool _gameEnded;
     private string? _validationMessage;
     private System.Threading.Timer? _scoreRepeatTimer;
@@ -321,7 +320,6 @@
         Winner = null;
         _teamAScore = null;
         _teamBScore = null;
-        _scoresTouched = false;
         _gameEnded = false;
         _validationMessage = null;
         _boundPreviewSlots = null;
@@ -340,19 +338,16 @@
         Winner = winner;
         _validationMessage = null;
 
-        if (!_scoresTouched)
+        switch (winner)
         {
-            switch (winner)
-            {
-                case "TeamA":
-                    _teamAScore = 21;
-                    _teamBScore = 15;
-                    break;
-                case "TeamB":
-                    _teamAScore = 15;
-                    _teamBScore = 21;
-                    break;
-            }
+            case "TeamA":
+                _teamAScore = 21;
+                _teamBScore = 15;
+                break;
+            case "TeamB":
+                _teamAScore = 15;
+                _teamBScore = 21;
+                break;
         }
     }
 
@@ -364,8 +359,6 @@
 
     private void AdjustScore(bool teamA, int delta)
     {
-        _scoresTouched = true;
-
         if (teamA)
             _teamAScore = Math.Max(0, (_teamAScore ?? 0) + delta);
         else

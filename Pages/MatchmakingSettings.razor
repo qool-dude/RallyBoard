@@ -16,11 +16,6 @@
         </div>
     </div>
 
-    @if (!string.IsNullOrEmpty(_status))
-    {
-        <p class="settings-status">@_status</p>
-    }
-
     <section class="dashboard-panel settings-panel">
         <div class="dashboard-panel__head">
             <h2>Profiles</h2>
@@ -164,6 +159,22 @@
     </form>
 </section>
 
+@if (!string.IsNullOrEmpty(_status))
+{
+    <div class="modal-backdrop" @onclick="DismissStatus">
+        <div class="modal-panel confirm-panel" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="settings-status-title">
+            <div class="modal-panel__head">
+                <h3 id="settings-status-title">@_statusTitle</h3>
+                <button type="button" class="modal-panel__close" @onclick="DismissStatus" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-panel__hint">@_status</p>
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-primary" @onclick="DismissStatus">OK</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private double _abilityChance, _randomness, _topPercentile, _topCluster;
     private int _lookback;
@@ -172,6 +183,7 @@
     private double _winRateW, _gamesW, _closeW, _defaultRating, _recentMult;
     private int _gamesCap, _recentWindow;
     private string _status = "";
+    private string _statusTitle = "Saved";
     private string _profileName = "";
     private List<MatchmakingProfile> _profiles = new();
 
@@ -179,6 +191,18 @@
     {
         RefreshProfiles();
         ReloadLive();
+    }
+
+    private void ShowStatus(string title, string message)
+    {
+        _statusTitle = title;
+        _status = message;
+    }
+
+    private void DismissStatus()
+    {
+        _status = "";
+        _statusTitle = "Saved";
     }
 
     private void RefreshProfiles() => _profiles = Settings.ListProfiles();
@@ -254,14 +278,14 @@
     {
         LoadFrom(Settings.GetSnapshot());
         _profileName = Settings.ActiveProfileName ?? "";
-        _status = "";
+        DismissStatus();
     }
 
     private void ResetDraft()
     {
         LoadFrom(Settings.GetDefaults());
         _profileName = "";
-        _status = "Form reset to appsettings defaults — click Apply & save to persist.";
+        ShowStatus("Form reset", "Form reset to appsettings defaults — click Apply & save to persist.");
     }
 
     private void Apply()
@@ -269,28 +293,28 @@
         Settings.Apply(BuildDraft());
         LoadFrom(Settings.GetSnapshot());
         RefreshProfiles();
-        _status = "Applied — next Pick Game / Shuffle uses these settings. Saved for future restarts.";
+        ShowStatus("Settings saved", "Applied — next Pick Game / Shuffle uses these settings. Saved for future restarts.");
     }
 
     private void SaveAsProfile()
     {
         if (string.IsNullOrWhiteSpace(_profileName))
         {
-            _status = "Enter a profile name first.";
+            ShowStatus("Name required", "Enter a profile name first.");
             return;
         }
 
         var saved = Settings.SaveProfile(_profileName, BuildDraft());
         RefreshProfiles();
         _profileName = saved.Name;
-        _status = $"Saved profile “{saved.Name}”. Apply it when you want it live.";
+        ShowStatus("Profile saved", $"Saved profile “{saved.Name}”. Apply it when you want it live.");
     }
 
     private void SaveAndApplyProfile()
     {
         if (string.IsNullOrWhiteSpace(_profileName))
         {
-            _status = "Enter a profile name first.";
+            ShowStatus("Name required", "Enter a profile name first.");
             return;
         }
 
@@ -300,14 +324,14 @@
         LoadFrom(Settings.GetSnapshot());
         RefreshProfiles();
         _profileName = saved.Name;
-        _status = $"Saved and applied “{saved.Name}” — next picks use this profile.";
+        ShowStatus("Profile applied", $"Saved and applied “{saved.Name}” — next picks use this profile.");
     }
 
     private void LoadProfileToForm(MatchmakingProfile profile)
     {
         LoadFrom(profile.Options);
         _profileName = profile.Name;
-        _status = $"Loaded “{profile.Name}” into the form — Apply & save (or Save & apply) to make it live.";
+        ShowStatus("Profile loaded", $"Loaded “{profile.Name}” into the form — Apply & save (or Save & apply) to make it live.");
     }
 
     private void ApplyProfile(Guid profileId)
@@ -316,7 +340,7 @@
         LoadFrom(Settings.GetSnapshot());
         RefreshProfiles();
         _profileName = Settings.ActiveProfileName ?? "";
-        _status = $"Applied “{_profileName}” — next picks use this profile.";
+        ShowStatus("Profile applied", $"Applied “{_profileName}” — next picks use this profile.");
     }
 
     private void DeleteProfile(Guid profileId)
@@ -326,6 +350,6 @@
         RefreshProfiles();
         if (Settings.ActiveProfileId is null && _profileName.Equals(name, StringComparison.OrdinalIgnoreCase))
             _profileName = "";
-        _status = $"Deleted “{name}”.";
+        ShowStatus("Profile deleted", $"Deleted “{name}”.");
     }
 }
