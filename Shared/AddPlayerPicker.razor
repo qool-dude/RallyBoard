@@ -9,7 +9,7 @@
     <input class="player-picker__input"
            @bind="_filter"
            @bind:event="oninput"
-           @bind:after="ClearWarning"
+           @bind:after="OnFilterChanged"
            @onfocus="OpenDropdown"
            @onkeydown="OnKeyDown"
            placeholder="Add a player…"
@@ -40,7 +40,7 @@
             }
         </ul>
     }
-    else if (_dropdownOpen && !string.IsNullOrWhiteSpace(_filter) && FilteredPlayers.Count == 0)
+    else if (_dropdownOpen && HasFilter && FilteredPlayers.Count == 0)
     {
         <div class="player-picker__empty">No match — press Add to create "@_filter.Trim()"</div>
     }
@@ -53,20 +53,35 @@
     private List<Player> _roster = new();
     private string? _warningMessage;
 
+    private bool HasFilter => !string.IsNullOrWhiteSpace(_filter);
+
     private List<Player> FilteredPlayers
     {
         get
         {
             var active = Allocation.GetActivePlayerIds();
-            var available = _roster.Where(p => !active.Contains(p.Id));
+            var available = _roster
+                .Where(p => !active.Contains(p.Id))
+                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);
 
-            if (string.IsNullOrWhiteSpace(_filter))
+            if (!HasFilter)
                 return available.ToList();
 
+            var term = _filter.Trim();
             return available
-                .Where(p => p.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                .Where(p => NameMatches(p.Name, term))
                 .ToList();
         }
+    }
+
+    private static bool NameMatches(string name, string term)
+    {
+        if (name.StartsWith(term, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Match any word (e.g. typing "S" finds "Bob Smith")
+        return name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Any(word => word.StartsWith(term, StringComparison.OrdinalIgnoreCase));
     }
 
     protected override void OnInitialized()
@@ -92,6 +107,13 @@
     private void CloseDropdown()
     {
         _dropdownOpen = false;
+        _highlightIndex = 0;
+    }
+
+    private void OnFilterChanged()
+    {
+        _warningMessage = null;
+        _dropdownOpen = true;
         _highlightIndex = 0;
     }
 
@@ -135,8 +157,6 @@
         _filter = "";
         CloseDropdown();
     }
-
-    private void ClearWarning() => _warningMessage = null;
 
     private void DismissPicker()
     {

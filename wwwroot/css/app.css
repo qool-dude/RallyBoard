@@ -1124,7 +1124,7 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
-  max-height: 240px;
+  max-height: min(420px, 55vh);
   overflow-y: auto;
   z-index: 20;
 }
