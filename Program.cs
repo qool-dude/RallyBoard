@@ -10,8 +10,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 
-// Configure PostgreSQL (Neon) connection
-builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+// CreateBuilder already loads appsettings*.json — don't AddJsonFile again
+// (extra reloadOnChange watchers blow the Linux inotify limit on small hosts).
 var conn = builder.Configuration.GetConnectionString("DefaultConnection") ?? "postgresql://neondb_owner:npg_s6l7KMCoVLgq@ep-damp-night-abakelpg.eu-west-2.aws.neon.tech/neondb?sslmode=require";
 
 // If a URI was provided, convert it to a key/value connection string that Npgsql can parse reliably

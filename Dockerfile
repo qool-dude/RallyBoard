@@ -13,6 +13,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
 ENV ASPNETCORE_URLS=http://+:8080
+# Avoid FileSystemWatcher/inotify exhaustion on small Linux hosts
+ENV DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE=false
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
 EXPOSE 8080
 
 COPY --from=build /app/publish .
