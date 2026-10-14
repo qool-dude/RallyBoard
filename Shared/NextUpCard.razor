@@ -1,0 +1,123 @@
+@inject CourtAllocationService Allocation
+@implements IDisposable
+
+@if (Allocation.NextUp?.Slots is { Length: >= 4 } slots)
+{
+    var p0 = slots[0];
+    var p1 = slots[1];
+    var p2 = slots[2];
+    var p3 = slots[3];
+
+    <div class="court court--next-up" aria-label="Next up">
+        <div class="court__head">
+            <h3>Next Up</h3>
+            <span class="court__next-badge">Queued</span>
+            <button type="button"
+                    class="court__next-close"
+                    title="Hide Next Up"
+                    aria-label="Hide Next Up"
+                    @onclick="Hide">
+                &times;
+            </button>
+        </div>
+        <div class="court__field">
+            <div class="court__team">
+                <div class="slot @(p0 is null ? "slot--empty" : "")"
+                     @ondragover="@(() => { })" @ondragover:preventDefault
+                     @ondrop="() => DropOnSlot(0)" @ondrop:preventDefault>
+                    @if (p0 is not null)
+                    {
+                        <PlayerChip @key="p0.Id"
+                                    Player="p0"
+                                    ShowRemove="true"
+                                    AllowRemove="false"
+                                    SwapCandidates="SwapCandidates(p0)"
+                                    PrimarySwapCandidates="PrimarySwapCandidates(p0)" />
+                    }
+                    else
+                    {
+                        <span class="slot__placeholder">Empty</span>
+                    }
+                </div>
+                <div class="slot @(p1 is null ? "slot--empty" : "")"
+                     @ondragover="@(() => { })" @ondragover:preventDefault
+                     @ondrop="() => DropOnSlot(1)" @ondrop:preventDefault>
+                    @if (p1 is not null)
+                    {
+                        <PlayerChip @key="p1.Id"
+                                    Player="p1"
+                                    ShowRemove="true"
+                                    AllowRemove="false"
+                                    SwapCandidates="SwapCandidates(p1)"
+                                    PrimarySwapCandidates="PrimarySwapCandidates(p1)" />
+                    }
+                    else
+                    {
+                        <span class="slot__placeholder">Empty</span>
+                    }
+                </div>
+            </div>
+            <div class="court__net" aria-hidden="true"></div>
+            <div class="court__team">
+                <div class="slot @(p2 is null ? "slot--empty" : "")"
+                     @ondragover="@(() => { })" @ondragover:preventDefault
+                     @ondrop="() => DropOnSlot(2)" @ondrop:preventDefault>
+                    @if (p2 is not null)
+                    {
+                        <PlayerChip @key="p2.Id"
+                                    Player="p2"
+                                    ShowRemove="true"
+                                    AllowRemove="false"
+                                    SwapCandidates="SwapCandidates(p2)"
+                                    PrimarySwapCandidates="PrimarySwapCandidates(p2)" />
+                    }
+                    else
+                    {
+                        <span class="slot__placeholder">Empty</span>
+                    }
+                </div>
+                <div class="slot @(p3 is null ? "slot--empty" : "")"
+                     @ondragover="@(() => { })" @ondragover:preventDefault
+                     @ondrop="() => DropOnSlot(3)" @ondrop:preventDefault>
+                    @if (p3 is not null)
+                    {
+                        <PlayerChip @key="p3.Id"
+                                    Player="p3"
+                                    ShowRemove="true"
+                                    AllowRemove="false"
+                                    SwapCandidates="SwapCandidates(p3)"
+                                    PrimarySwapCandidates="PrimarySwapCandidates(p3)" />
+                    }
+                    else
+                    {
+                        <span class="slot__placeholder">Empty</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Allocation.OnChange += OnStateChanged;
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private IEnumerable<Player> NextUpPlayers =>
+        Allocation.NextUp?.Slots.OfType<Player>() ?? Enumerable.Empty<Player>();
+
+    private IEnumerable<Player> SwapCandidates(Player player) =>
+        NextUpPlayers
+            .Concat(Allocation.Waiting.Where(p => !p.IsPaused && !Allocation.IsNextUpPlayer(p.Id)))
+            .Where(p => p.Id != player.Id)
+            .DistinctBy(p => p.Id);
+
+    private IEnumerable<Player> PrimarySwapCandidates(Player player) =>
+        NextUpPlayers.Where(p => p.Id != player.Id);
+
+    private void DropOnSlot(int index) => Allocation.DropOnNextUpSlot(index);
+
+    private void Hide() => Allocation.HideNextUp();
+
+    public void Dispose() => Allocation.OnChange -= OnStateChanged;
+}

@@ -55,3 +55,37 @@ public record PlayerMatchStats(
     double Rating,
     int PointsFor,
     int PointsAgainst);
+
+public record PlayerSessionPoint(
+    Guid SessionId,
+    DateOnly Date,
+    string SessionLabel,
+    int Games,
+    int Wins,
+    int Losses,
+    double WinRate,
+    double SessionRating,
+    double CumulativeRating,
+    int PointsFor,
+    int PointsAgainst);
+
+public record PlayerProfileDetail(
+    Guid PlayerId,
+    string Name,
+    int ColorIndex,
+    string Initials,
+    int OverallRank,
+    int TotalPlayersRanked,
+    double Rating,
+    int Games,
+    int Wins,
+    int Losses,
+    double WinRate,
+    double Closeness,
+    int PointsFor,
+    int PointsAgainst,
+    int SessionsPlayed,
+    PlayerSessionPoint? BestSession,
+    PlayerSessionPoint? WorstSession,
+    IReadOnlyList<PlayerSessionPoint> Timeline,
+    IReadOnlyList<GameSummaryRow> RecentGames);

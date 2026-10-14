@@ -1,6 +1,7 @@
 @inject CourtAllocationService Allocation
 @inject SessionService Sessions
-@implements IDisposable
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div class="chip chip--@(Player.ColorIndex % 6) @(IsWaiting ? "chip--waiting" : "") @(_dragOver ? "chip--dragover" : "") @(_menuOpen ? "chip--menu-open" : "") @(Locked ? "chip--locked" : "") @(Player.IsPaused ? "chip--paused" : "")"
      draggable="@(CanDrag ? "true" : "false")"
@@ -25,7 +26,7 @@
             </span>
         }
     </span>
-    <span class="chip__name">@Player.Name</span>
+    <span @ref="_nameEl" class="chip__name" title="@Player.Name">@Player.Name</span>
     @if (IsWaiting)
     {
         <span class="chip__waiting">@FormatElapsed(Player.GetWaitingElapsed())</span>
@@ -117,6 +118,8 @@
     private bool _dragOver;
     private bool _confirmRemove;
     private Guid _boundPlayerId;
+    private ElementReference _nameEl;
+    private string? _fittedName;
 
     private bool CanDrag => !Locked && !Player.IsPaused && !_menuOpen && !_confirmRemove;
     private bool UseGroupedSwapMenu =>
@@ -140,10 +143,32 @@
             _menuOpen = false;
             _dragOver = false;
             _confirmRemove = false;
+            _fittedName = null;
         }
 
         if (Locked || Player.IsPaused)
             _menuOpen = false;
+
+        if (!string.Equals(_fittedName, Player.Name, StringComparison.Ordinal))
+            _fittedName = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Court slots wrap to two lines; only fit single-line waiting-pool chips.
+        if (!IsWaiting)
+            return;
+
+        if (_fittedName is not null && string.Equals(_fittedName, Player.Name, StringComparison.Ordinal))
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("rallyObserveChipName", _nameEl, 11);
+            _fittedName = Player.Name;
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
     }
 
     private async Task OnDragStart(DragEventArgs e)
@@ -292,11 +317,18 @@
             InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Allocation.Tick -= OnTick;
         Allocation.OnChange -= OnBoardChanged;
         Allocation.ChipMenuOpening -= OnOtherMenuOpening;
         Sessions.OnChange -= OnPaidChanged;
+
+        try
+        {
+            await JS.InvokeVoidAsync("rallyUnobserveChipName", _nameEl);
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
     }
 }

@@ -1,0 +1,284 @@
+@if (Profile is not null)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-panel player-profile-modal" @onclick:stopPropagation role="dialog" aria-modal="true" aria-labelledby="player-profile-title">
+            <div class="modal-panel__head">
+                <div class="player-profile__title">
+                    <span class="player-profile__avatar chip--@(Profile.ColorIndex % 6)">@Profile.Initials</span>
+                    <div>
+                        <h3 id="player-profile-title">@Profile.Name</h3>
+                        <p class="player-profile__rank">
+                            Overall rank <strong>#@Profile.OverallRank</strong>
+                            <span>of @Profile.TotalPlayersRanked</span>
+                            · Rating <strong>@Profile.Rating.ToString("0.#")</strong>
+                        </p>
+                    </div>
+                </div>
+                <button type="button" class="modal-panel__close" @onclick="Close" aria-label="Close">&times;</button>
+            </div>
+
+            <div class="player-profile__stats">
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.Games</span>
+                    <span class="player-profile__stat-label">Games</span>
+                </div>
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.Wins–@Profile.Losses</span>
+                    <span class="player-profile__stat-label">W–L</span>
+                </div>
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.WinRate.ToString("0.#")%</span>
+                    <span class="player-profile__stat-label">Win rate</span>
+                </div>
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.Closeness.ToString("0.#")</span>
+                    <span class="player-profile__stat-label">Closeness</span>
+                </div>
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.PointsFor–@Profile.PointsAgainst</span>
+                    <span class="player-profile__stat-label">Pts +/−</span>
+                </div>
+                <div class="player-profile__stat">
+                    <span class="player-profile__stat-value">@Profile.SessionsPlayed</span>
+                    <span class="player-profile__stat-label">Sessions</span>
+                </div>
+            </div>
+
+            <div class="player-profile__highlights">
+                <div class="player-profile__highlight player-profile__highlight--best">
+                    <span class="player-profile__highlight-label">Best session</span>
+                    @if (Profile.BestSession is { } best)
+                    {
+                        <strong>@best.SessionLabel</strong>
+                        <span>@best.Date.ToString("ddd d MMM yyyy") · @best.Wins–@best.Losses (@best.WinRate.ToString("0.#")%) · session rating @best.SessionRating.ToString("0.#")</span>
+                    }
+                    else
+                    {
+                        <span class="player-profile__muted">Not enough session data yet</span>
+                    }
+                </div>
+                <div class="player-profile__highlight player-profile__highlight--worst">
+                    <span class="player-profile__highlight-label">Worst session</span>
+                    @if (Profile.WorstSession is { } worst)
+                    {
+                        <strong>@worst.SessionLabel</strong>
+                        <span>@worst.Date.ToString("ddd d MMM yyyy") · @worst.Wins–@worst.Losses (@worst.WinRate.ToString("0.#")%) · session rating @worst.SessionRating.ToString("0.#")</span>
+                    }
+                    else
+                    {
+                        <span class="player-profile__muted">Need at least two sessions to compare</span>
+                    }
+                </div>
+            </div>
+
+            <section class="player-profile__chart-block">
+                <div class="player-profile__section-head">
+                    <h4>Rating over time</h4>
+                    <span>Cumulative rating after each session</span>
+                </div>
+                @if (Profile.Timeline.Count == 0)
+                {
+                    <p class="dashboard__empty">No games recorded for this player yet.</p>
+                }
+                else if (Profile.Timeline.Count == 1)
+                {
+                    <p class="player-profile__muted">Only one session so far — chart fills in as they play more nights.</p>
+                    <div class="player-profile__single-point">
+                        <strong>@Profile.Timeline[0].CumulativeRating.ToString("0.#")</strong>
+                        <span>after @Profile.Timeline[0].SessionLabel</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="player-profile__chart" role="img" aria-label="Rating over sessions">
+                        <svg viewBox="0 0 @ChartW @ChartH" preserveAspectRatio="xMidYMid meet">
+                            <line class="player-profile__chart-axis" x1="@PadL" y1="@PadT" x2="@PadL" y2="@(ChartH - PadB)" />
+                            <line class="player-profile__chart-axis" x1="@PadL" y1="@(ChartH - PadB)" x2="@(ChartW - PadR)" y2="@(ChartH - PadB)" />
+                            @foreach (var grid in GridYs)
+                            {
+                                <line class="player-profile__chart-grid" x1="@PadL" y1="@grid.Y" x2="@(ChartW - PadR)" y2="@grid.Y" />
+                                @((MarkupString)$"""<text class="player-profile__chart-ylabel" x="{(PadL - 6):0.##}" y="{(grid.Y + 4):0.##}" text-anchor="end">{grid.Label}</text>""")
+                            }
+                            <polyline class="player-profile__chart-line" fill="none" points="@LinePoints" />
+                            <polygon class="player-profile__chart-fill" points="@AreaPoints" />
+                            @foreach (var pt in ChartPoints)
+                            {
+                                <circle class="player-profile__chart-dot" cx="@pt.X" cy="@pt.Y" r="4">
+                                    <title>@pt.Label: @pt.Rating.ToString("0.#")</title>
+                                </circle>
+                            }
+                        </svg>
+                        <div class="player-profile__chart-xlabels">
+                            @foreach (var pt in ChartPoints)
+                            {
+                                <span title="@pt.FullLabel">@pt.ShortLabel</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </section>
+
+            @if (Profile.Timeline.Count > 0)
+            {
+                <section class="player-profile__sessions">
+                    <div class="player-profile__section-head">
+                        <h4>Session history</h4>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table data-table--compact">
+                            <thead>
+                                <tr>
+                                    <th>Session</th>
+                                    <th>G</th>
+                                    <th>W–L</th>
+                                    <th>Win%</th>
+                                    <th>Session</th>
+                                    <th>Cumul.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in Profile.Timeline.Reverse())
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="player-profile__session-name">@row.SessionLabel</div>
+                                            <div class="player-profile__session-date">@row.Date.ToString("d MMM yyyy")</div>
+                                        </td>
+                                        <td>@row.Games</td>
+                                        <td>@row.Wins–@row.Losses</td>
+                                        <td>@row.WinRate.ToString("0.#")%</td>
+                                        <td>@row.SessionRating.ToString("0.#")</td>
+                                        <td class="data-table__rating">@row.CumulativeRating.ToString("0.#")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+
+            @if (Profile.RecentGames.Count > 0)
+            {
+                <section class="player-profile__games">
+                    <div class="player-profile__section-head">
+                        <h4>Recent games</h4>
+                    </div>
+                    <ul class="player-profile__game-list">
+                        @foreach (var game in Profile.RecentGames)
+                        {
+                            var (winners, losers, score) = FormatGameResult(game);
+                            <li>
+                                <span class="player-profile__game-when">@game.EndedAt.ToLocalTime().ToString("d MMM HH:mm")</span>
+                                <span class="player-profile__game-score">@score</span>
+                                <span>@winners <em>beat</em> @losers</span>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+
+            <div class="modal-panel__actions">
+                <button type="button" class="btn btn-primary" @onclick="Close">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const double ChartW = 640;
+    private const double ChartH = 220;
+    private const double PadL = 36;
+    private const double PadR = 12;
+    private const double PadT = 16;
+    private const double PadB = 12;
+
+    [Parameter] public PlayerProfileDetail? Profile { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private IReadOnlyList<(double X, double Y, double Rating, string Label, string ShortLabel, string FullLabel)> ChartPoints { get; set; } =
+        Array.Empty<(double, double, double, string, string, string)>();
+
+    private IReadOnlyList<(double Y, string Label)> GridYs { get; set; } = Array.Empty<(double, string)>();
+    private string LinePoints { get; set; } = "";
+    private string AreaPoints { get; set; } = "";
+
+    protected override void OnParametersSet()
+    {
+        BuildChart();
+    }
+
+    private void BuildChart()
+    {
+        if (Profile is null || Profile.Timeline.Count < 2)
+        {
+            ChartPoints = Array.Empty<(double, double, double, string, string, string)>();
+            GridYs = Array.Empty<(double, string)>();
+            LinePoints = "";
+            AreaPoints = "";
+            return;
+        }
+
+        var points = Profile.Timeline;
+        var minR = points.Min(p => p.CumulativeRating);
+        var maxR = points.Max(p => p.CumulativeRating);
+        if (Math.Abs(maxR - minR) < 0.5)
+        {
+            minR -= 2;
+            maxR += 2;
+        }
+        else
+        {
+            var pad = (maxR - minR) * 0.12;
+            minR -= pad;
+            maxR += pad;
+        }
+
+        minR = Math.Max(0, Math.Floor(minR));
+        maxR = Math.Min(100, Math.Ceiling(maxR));
+        if (maxR <= minR) maxR = minR + 1;
+
+        var plotW = ChartW - PadL - PadR;
+        var plotH = ChartH - PadT - PadB;
+        var n = points.Count;
+
+        var chartPts = new List<(double X, double Y, double Rating, string Label, string ShortLabel, string FullLabel)>(n);
+        for (var i = 0; i < n; i++)
+        {
+            var p = points[i];
+            var x = PadL + (n == 1 ? plotW / 2 : plotW * i / (n - 1));
+            var y = PadT + plotH * (1 - (p.CumulativeRating - minR) / (maxR - minR));
+            var shortLabel = p.Date.ToString("d MMM");
+            chartPts.Add((x, y, p.CumulativeRating, p.SessionLabel, shortLabel, $"{p.SessionLabel} ({p.Date:d MMM yyyy})"));
+        }
+
+        ChartPoints = chartPts;
+        LinePoints = string.Join(" ", chartPts.Select(p => $"{p.X:0.##},{p.Y:0.##}"));
+        var baseY = ChartH - PadB;
+        AreaPoints = $"{PadL:0.##},{baseY:0.##} " + LinePoints + $" {ChartW - PadR:0.##},{baseY:0.##}";
+
+        var grids = new List<(double Y, string Label)>();
+        var steps = 4;
+        for (var s = 0; s <= steps; s++)
+        {
+            var value = minR + (maxR - minR) * s / steps;
+            var y = PadT + plotH * (1 - (value - minR) / (maxR - minR));
+            grids.Add((y, value.ToString("0")));
+        }
+        GridYs = grids;
+    }
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private static (string Winners, string Losers, string Score) FormatGameResult(GameSummaryRow game)
+    {
+        var aScore = game.TeamAScore?.ToString() ?? "—";
+        var bScore = game.TeamBScore?.ToString() ?? "—";
+
+        return game.WinnerSide switch
+        {
+            "TeamA" => (game.TeamANames, game.TeamBNames, $"{aScore} : {bScore}"),
+            "TeamB" => (game.TeamBNames, game.TeamANames, $"{bScore} : {aScore}"),
+            _ => (game.TeamANames, game.TeamBNames, $"{aScore} : {bScore}")
+        };
+    }
+}

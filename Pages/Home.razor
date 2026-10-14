@@ -22,7 +22,7 @@
 
     <div class="toolbar__group toolbar__group--add">
         <AddPlayerPicker />
-        @if (!Admin.IsAdmin)
+        @if (!Admin.IsAdmin || Allocation.CanShowNextUpManually)
         {
             <div class="overflow-menu">
                 <button type="button"
@@ -37,7 +37,14 @@
                 {
                     <div class="chip-menu-backdrop" @onclick="CloseOverflow"></div>
                     <div class="overflow-menu__panel" role="menu" @onclick:stopPropagation>
-                        <button type="button" class="overflow-menu__item" role="menuitem" @onclick="OpenAdminLogin">Admin login</button>
+                        @if (Allocation.CanShowNextUpManually)
+                        {
+                            <button type="button" class="overflow-menu__item" role="menuitem" @onclick="ShowNextUp">Show Next Up</button>
+                        }
+                        @if (!Admin.IsAdmin)
+                        {
+                            <button type="button" class="overflow-menu__item" role="menuitem" @onclick="OpenAdminLogin">Admin login</button>
+                        }
                     </div>
                 }
             </div>
@@ -74,6 +81,7 @@
     {
         <CourtCard Court="court" />
     }
+    <NextUpCard />
 </section>
 
 <WaitingPool />
@@ -264,6 +272,12 @@
 
     private void ToggleOverflow() => _overflowOpen = !_overflowOpen;
     private void CloseOverflow() => _overflowOpen = false;
+
+    private void ShowNextUp()
+    {
+        CloseOverflow();
+        Allocation.ShowNextUpManually();
+    }
 
     private void OpenAdminLogin()
     {

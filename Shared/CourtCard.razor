@@ -4,8 +4,10 @@
 
 <div class="court @(Court.IsFull ? "court--full" : "") @(Court.IsRunning ? "court--live" : "") @(Court.IsPaused ? "court--paused" : "")">
     <div class="court__head">
-        <h3>@Court.Name</h3>
-        <span class="court__count">@Court.FilledCount/4</span>
+        <div class="court__title">
+            <h3>@Court.Name</h3>
+            <span class="court__count">@Court.FilledCount/4</span>
+        </div>
         @if (Admin.IsAdmin && Court.FilledCount > 0 && OtherCourts.Count > 0)
         {
             <button type="button" class="btn-quiet court__move" title="Move this match to another court" @onclick="OpenMoveCourt">
@@ -178,7 +180,7 @@
 
     private void PickGame()
     {
-        var pick = Allocation.ProposePickGame(Court);
+        var pick = Allocation.TakeNextUpOrPropose(Court);
         if (pick is null)
         {
             _availablePlayerCount = Allocation.GetAvailableWaitingPlayers().Count;
@@ -255,7 +257,7 @@
     {
         _resumeIfEndGameCancelled = false;
         Allocation.EndGame(Court, result.Winner, result.TeamAScore, result.TeamBScore);
-        _pendingPick = Allocation.ProposePickGame();
+        _pendingPick = Allocation.TakeNextUpOrPropose(Court);
         OpenNextGame();
     }
 

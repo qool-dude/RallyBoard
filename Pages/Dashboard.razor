@@ -14,7 +14,7 @@
         <div class="dashboard__head-actions">
             <button class="btn btn-ghost" @onclick="OpenSessionManager">Manage sessions</button>
             <a class="btn btn-ghost" href="/dashboard/picks">Picks</a>
-            <a class="btn btn-ghost" href="/dashboard/matchmaking">Pick settings</a>
+            <a class="btn btn-ghost" href="/dashboard/matchmaking">Settings</a>
             <a class="btn btn-primary" href="/">Back to courts</a>
         </div>
     </div>
@@ -99,7 +99,13 @@
                                 var rank = i + 1;
                                 <tr class="@(rank <= 3 ? $"data-table__row--top{rank}" : "")">
                                     <td class="data-table__rank">@rank</td>
-                                    <td class="data-table__name">@row.Name</td>
+                                    <td class="data-table__name">
+                                        <button type="button"
+                                                class="data-table__player-link"
+                                                @onclick="() => OpenPlayerProfile(row.PlayerId)">
+                                            @row.Name
+                                        </button>
+                                    </td>
                                     <td class="data-table__rating">@row.Rating.ToString("0.#")</td>
                                     <td>@row.Games</td>
                                     <td>@row.Wins</td>
@@ -343,6 +349,8 @@
     </div>
 }
 
+<PlayerProfileModal Profile="_playerProfile" OnClose="ClosePlayerProfile" />
+
 @if (_confirmDeleteSession && _sessionPendingDeleteId is Guid deleteSessionId)
 {
     var session = _sessions.FirstOrDefault(s => s.Id == deleteSessionId);
@@ -394,6 +402,7 @@
     private Guid? _editingPlayerId;
     private string _playerNameEdit = "";
     private string _attendanceFilter = "all";
+    private PlayerProfileDetail? _playerProfile;
 
     private IEnumerable<Player> FilteredCurrentAttendance
     {
@@ -444,6 +453,7 @@
         _editingSessionId = null;
         _editingPlayerId = null;
         _attendanceFilter = "all";
+        _playerProfile = null;
         LoadData();
         StateHasChanged();
     });
@@ -549,6 +559,13 @@
             Sessions.ToggleAttendance(sessionId, playerId, false);
         LoadData();
     }
+
+    private void OpenPlayerProfile(Guid playerId)
+    {
+        _playerProfile = Sessions.GetPlayerProfile(playerId);
+    }
+
+    private void ClosePlayerProfile() => _playerProfile = null;
 
     private void OpenSessionManager()
     {

@@ -22,6 +22,8 @@
 @code {
     private List<string> _items = new();
 
+    private CancellationTokenSource? _rebuildCts;
+
     protected override void OnInitialized()
     {
         Rebuild();
@@ -30,11 +32,29 @@
         Allocation.OnChange += OnChanged;
     }
 
-    private void OnChanged() => InvokeAsync(() =>
+    private void OnChanged()
     {
-        Rebuild();
-        StateHasChanged();
-    });
+        _rebuildCts?.Cancel();
+        _rebuildCts?.Dispose();
+        _rebuildCts = new CancellationTokenSource();
+        var token = _rebuildCts.Token;
+
+        // Coalesce ModeChanged + Allocation.OnChange (+ any burst) into one rebuild.
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(50, token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            Rebuild();
+            StateHasChanged();
+        });
+    }
 
     private void Rebuild()
     {
@@ -44,8 +64,8 @@
         {
             var sessionId = Sessions.CurrentSessionId;
             var stats = Sessions.GetSessionStats(sessionId);
-            var rankings = Sessions.GetRankings(sessionId);
-            var recent = Sessions.GetRecentGames(sessionId, 8);
+            // Avoid GetRankings — it recomputes global ratings across all games.
+            var recent = Sessions.GetRecentGames(sessionId, 6);
             var onCourt = Allocation.Courts.Sum(c => c.FilledCount);
             var waiting = Allocation.Waiting.Count;
             var session = Sessions.GetCurrentSession();
@@ -65,29 +85,6 @@
 
             if (onCourt + waiting > 0)
                 items.Add($"{onCourt} on court · {waiting} waiting");
-
-            var leader = rankings
-                .Where(r => r.Games > 0)
-                .OrderByDescending(r => r.Wins)
-                .ThenByDescending(r => r.Rating)
-                .FirstOrDefault();
-            if (leader is not null && leader.Wins > 0)
-                items.Add($"{leader.Name} leads with {leader.Wins} win{(leader.Wins == 1 ? "" : "s")}");
-
-            var hot = rankings
-                .Where(r => r.Games >= 2)
-                .OrderByDescending(r => r.WinRate)
-                .ThenByDescending(r => r.Games)
-                .FirstOrDefault();
-            if (hot is not null && hot.WinRate >= 60)
-                items.Add($"{hot.Name} is humming at {hot.WinRate:0}%");
-
-            var iron = rankings
-                .Where(r => r.Games > 0)
-                .OrderByDescending(r => r.Games)
-                .FirstOrDefault();
-            if (iron is not null && iron.Games >= 3)
-                items.Add($"{iron.Name} has played {iron.Games} — legs of steel");
 
             var closest = recent
                 .Where(g => g.TeamAScore is int && g.TeamBScore is int)
@@ -136,6 +133,8 @@
 
     public void Dispose()
     {
+        _rebuildCts?.Cancel();
+        _rebuildCts?.Dispose();
         Sessions.OnChange -= OnChanged;
         Sessions.ModeChanged -= OnChanged;
         Allocation.OnChange -= OnChanged;

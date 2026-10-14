@@ -1,13 +1,13 @@
 @page "/dashboard/matchmaking"
 @inject MatchmakingSettingsService Settings
 
-<PageTitle>RallyBoard — Pick settings</PageTitle>
+<PageTitle>RallyBoard — Settings</PageTitle>
 
 <section class="dashboard">
     <div class="dashboard__head">
         <div>
-            <h1>Pick game settings</h1>
-            <p class="dashboard__subtitle">Tune matchmaking — Apply saves to the database and takes effect on the next pick</p>
+            <h1>Settings</h1>
+            <p class="dashboard__subtitle">Tune pick matchmaking and player ratings — Apply saves to the database and takes effect on the next pick</p>
         </div>
         <div class="dashboard__head-actions">
             <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
@@ -63,7 +63,7 @@
 
     <form class="settings-form" @onsubmit="Apply" @onsubmit:preventDefault>
         <section class="dashboard-panel settings-panel">
-            <div class="dashboard-panel__head"><h2>Selection</h2></div>
+            <div class="dashboard-panel__head"><h2>Pick game</h2></div>
             <div class="settings-grid">
                 <label class="settings-field">
                     <span class="settings-field__label">Ability algorithm chance</span>
@@ -139,15 +139,49 @@
         </div>
 
         <section class="dashboard-panel settings-panel">
-            <div class="dashboard-panel__head"><h2>Rating (feeds picks)</h2></div>
+            <div class="dashboard-panel__head">
+                <h2>Player Rating settings</h2>
+                <span class="dashboard-panel__badge">0–100 score</span>
+            </div>
+            <p class="settings-panel__intro">
+                How each player’s rating is calculated from wins, experience, and recent form. Used by pick matchmaking and the dashboard rankings.
+            </p>
             <div class="settings-grid">
-                <label class="settings-field"><span class="settings-field__label">Win rate weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_winRateW" @bind:event="oninput" /><span class="settings-field__value">@_winRateW.ToString("0.00")</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Games played weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_gamesW" @bind:event="oninput" /><span class="settings-field__value">@_gamesW.ToString("0.00")</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Closeness weight</span><div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_closeW" @bind:event="oninput" /><span class="settings-field__value">@_closeW.ToString("0.00")</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Games played cap</span><div class="settings-field__row"><input type="range" min="1" max="40" step="1" @bind="_gamesCap" @bind:event="oninput" /><span class="settings-field__value">@_gamesCap</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Default rating</span><div class="settings-field__row"><input type="range" min="0" max="100" step="1" @bind="_defaultRating" @bind:event="oninput" /><span class="settings-field__value">@_defaultRating.ToString("0")</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Recent sessions window</span><div class="settings-field__row"><input type="range" min="1" max="20" step="1" @bind="_recentWindow" @bind:event="oninput" /><span class="settings-field__value">@_recentWindow</span></div></label>
-                <label class="settings-field"><span class="settings-field__label">Recent session multiplier</span><div class="settings-field__row"><input type="range" min="1" max="10" step="0.5" @bind="_recentMult" @bind:event="oninput" /><span class="settings-field__value">@_recentMult.ToString("0.0")</span></div></label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Win rate weight</span>
+                    <span class="settings-field__hint">How much win % contributes to rating</span>
+                    <div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_winRateW" @bind:event="oninput" /><span class="settings-field__value">@_winRateW.ToString("0.00")</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Games played weight</span>
+                    <span class="settings-field__hint">How much experience (games played) contributes</span>
+                    <div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_gamesW" @bind:event="oninput" /><span class="settings-field__value">@_gamesW.ToString("0.00")</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Closeness weight</span>
+                    <span class="settings-field__hint">Tighter scores raise rating more than blowouts</span>
+                    <div class="settings-field__row"><input type="range" min="0" max="1" step="0.05" @bind="_closeW" @bind:event="oninput" /><span class="settings-field__value">@_closeW.ToString("0.00")</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Games played cap</span>
+                    <span class="settings-field__hint">Games needed to reach full experience score</span>
+                    <div class="settings-field__row"><input type="range" min="1" max="40" step="1" @bind="_gamesCap" @bind:event="oninput" /><span class="settings-field__value">@_gamesCap</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Default rating</span>
+                    <span class="settings-field__hint">Starting rating when a player has no games yet</span>
+                    <div class="settings-field__row"><input type="range" min="0" max="100" step="1" @bind="_defaultRating" @bind:event="oninput" /><span class="settings-field__value">@_defaultRating.ToString("0")</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Recent sessions window</span>
+                    <span class="settings-field__hint">How many latest sessions get a form boost</span>
+                    <div class="settings-field__row"><input type="range" min="1" max="20" step="1" @bind="_recentWindow" @bind:event="oninput" /><span class="settings-field__value">@_recentWindow</span></div>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-field__label">Recent session multiplier</span>
+                    <span class="settings-field__hint">Weight for games in that recent window (older stay at 1×)</span>
+                    <div class="settings-field__row"><input type="range" min="1" max="10" step="0.5" @bind="_recentMult" @bind:event="oninput" /><span class="settings-field__value">@_recentMult.ToString("0.0")</span></div>
+                </label>
             </div>
         </section>
 

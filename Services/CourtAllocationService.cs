@@ -30,7 +30,16 @@ namespace RallyBoard.Services
         public List<Court> Courts { get; } = new();
         public List<Player> Waiting { get; } = new();
 
+        /// <summary>
+        /// Preview lineup for the next game when all courts are full and the waiting pool is deep.
+        /// Players remain in <see cref="Waiting"/> until a real court accepts them.
+        /// </summary>
+        public MatchmakingPickResult? NextUp { get; private set; }
+
         public void NotifyChipMenuOpening(Guid playerId) => ChipMenuOpening?.Invoke(playerId);
+
+        public bool IsNextUpPlayer(Guid playerId) =>
+            NextUp?.Slots?.Any(p => p?.Id == playerId) == true;
         public CourtAllocationService(
             IDbContextFactory<RallyBoardDbContext> dbFactory,
             SessionService sessions,
@@ -206,6 +215,7 @@ namespace RallyBoard.Services
                 }
             }
 
+            ClearNextUp();
             PersistState();
             OnChange?.Invoke();
         }
@@ -244,6 +254,7 @@ namespace RallyBoard.Services
                 court.PendingMatchmaking = pick.Decision;
             }
 
+            ClearNextUp();
             PersistState();
             OnChange?.Invoke();
         }
@@ -267,6 +278,31 @@ namespace RallyBoard.Services
         }
 
         /// <summary>
+        /// For an empty court, use the queued Next Up lineup when still valid; otherwise normal pick.
+        /// Consumes Next Up so the preview card clears while the next-game modal is open.
+        /// </summary>
+        public MatchmakingPickResult? TakeNextUpOrPropose(Court? court = null)
+        {
+            var courtEmpty = court is null || court.Slots.All(p => p is null);
+            if (courtEmpty && NextUp is not null)
+            {
+                var available = GetAvailableWaitingPlayers();
+                if (NextUpStillValid(available))
+                {
+                    var pick = NextUp!;
+                    ClearNextUp();
+                    OnChange?.Invoke();
+                    return pick;
+                }
+
+                ClearNextUp();
+                OnChange?.Invoke();
+            }
+
+            return ProposePickGame(court);
+        }
+
+        /// <summary>
         /// Applies a previously proposed lineup to the court and removes players from waiting.
         /// </summary>
         public void ApplyPickGame(Court c, MatchmakingPickResult pick, bool startTimer = true)
@@ -287,6 +323,7 @@ namespace RallyBoard.Services
             if (startTimer)
                 StartTimer(c);
 
+            RefreshNextUp(propose: true);
             PersistState();
             OnChange?.Invoke();
         }
@@ -298,6 +335,106 @@ namespace RallyBoard.Services
                 return;
 
             ApplyPickGame(c, pick, startTimer: false);
+        }
+
+        /// <summary>
+        /// Auto-propose after Accept when all courts are full and ≥7 are waiting.
+        /// Otherwise keep an existing Next Up while its players are still available
+        /// (including when a new empty court is added).
+        /// </summary>
+        public void RefreshNextUp(bool propose = false)
+        {
+            var available = GetAvailableWaitingPlayers();
+
+            if (available.Count < 4)
+            {
+                ClearNextUp();
+                return;
+            }
+
+            var allFull = Courts.Count > 0 && Courts.All(c => c.IsFull);
+
+            if (propose && allFull && available.Count >= 7)
+            {
+                NextUp = ProposePickGame();
+                return;
+            }
+
+            // Keep an existing preview only while its players are still waiting.
+            if (NextUp is not null && !NextUpStillValid(available))
+                ClearNextUp();
+        }
+
+        public bool CanShowNextUpManually =>
+            NextUp is null && GetAvailableWaitingPlayers().Count >= 4;
+
+        public void ShowNextUpManually()
+        {
+            if (!CanShowNextUpManually)
+                return;
+
+            NextUp = ProposePickGame();
+            OnChange?.Invoke();
+        }
+
+        public void HideNextUp()
+        {
+            if (NextUp is null)
+                return;
+
+            ClearNextUp();
+            OnChange?.Invoke();
+        }
+
+        public void ClearNextUp() => NextUp = null;
+
+        private bool NextUpStillValid(List<Player> available)
+        {
+            if (NextUp?.Slots is null || NextUp.Slots.Length < 4)
+                return false;
+
+            var availableIds = available.Select(p => p.Id).ToHashSet();
+            return NextUp.Slots.All(p => p is not null && availableIds.Contains(p.Id));
+        }
+
+        /// <summary>
+        /// Next Up is a view over waiting players — rearrange slots or replace with another waiter.
+        /// Returns true when the swap was handled here.
+        /// </summary>
+        private bool TryRearrangeNextUp(Player player1, Player player2)
+        {
+            if (NextUp?.Slots is null || NextUp.Slots.Length < 4)
+                return false;
+
+            var i1 = Array.FindIndex(NextUp.Slots, p => p?.Id == player1.Id);
+            var i2 = Array.FindIndex(NextUp.Slots, p => p?.Id == player2.Id);
+            if (i1 < 0 && i2 < 0)
+                return false;
+
+            var (loc1, _) = FindPlayerLocation(player1);
+            var (loc2, _) = FindPlayerLocation(player2);
+            if (loc1 != "waiting" || loc2 != "waiting")
+                return false;
+
+            if (player1.IsPaused || player2.IsPaused)
+                return false;
+
+            if (i1 >= 0 && i2 >= 0)
+                (NextUp.Slots[i1], NextUp.Slots[i2]) = (NextUp.Slots[i2], NextUp.Slots[i1]);
+            else if (i1 >= 0)
+                NextUp.Slots[i1] = player2;
+            else
+                NextUp.Slots[i2] = player1;
+
+            MarkNextUpEdited();
+            OnChange?.Invoke();
+            return true;
+        }
+
+        private void MarkNextUpEdited()
+        {
+            if (NextUp?.Decision is not null)
+                NextUp.Decision.TeamsChanged = true;
         }
 
         public void SetCourtCount(int count)
@@ -335,6 +472,7 @@ namespace RallyBoard.Services
                 }
             }
 
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
         }
@@ -377,6 +515,7 @@ namespace RallyBoard.Services
             foreach (var source in sourceCourts)
                 MarkCourtLineupChanged(source);
 
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
         }
@@ -407,6 +546,7 @@ namespace RallyBoard.Services
             foreach (var source in sourceCourts)
                 MarkCourtLineupChanged(source);
 
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
         }
@@ -477,6 +617,7 @@ namespace RallyBoard.Services
                 MarkCourtLineupChanged(court);
 
             // Note: we don't delete from DB automatically; just remove from in-memory state
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
         }
@@ -502,14 +643,44 @@ namespace RallyBoard.Services
                 }
             }
 
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
+        }
+
+        public void DropOnNextUpSlot(int slotIndex)
+        {
+            if (_draggedPlayer is null || NextUp?.Slots is null)
+                return;
+            if (slotIndex < 0 || slotIndex >= NextUp.Slots.Length)
+                return;
+
+            var target = NextUp.Slots[slotIndex];
+            var dragged = _draggedPlayer;
+            _draggedPlayer = null;
+
+            if (target is null)
+            {
+                var (loc, _) = FindPlayerLocation(dragged);
+                if (loc != "waiting" || dragged.IsPaused)
+                    return;
+
+                NextUp.Slots[slotIndex] = dragged;
+                MarkNextUpEdited();
+                OnChange?.Invoke();
+                return;
+            }
+
+            SwapPlayers(dragged, target);
         }
 
         public void SwapPlayers(Player player1, Player player2)
         {
             if (player1 is null || player2 is null) return;
             if (IsPlayerOnLockedCourt(player1) || IsPlayerOnLockedCourt(player2))
+                return;
+
+            if (TryRearrangeNextUp(player1, player2))
                 return;
 
             // Find locations
@@ -564,6 +735,7 @@ namespace RallyBoard.Services
             if (pos2 is (Court c2, _) && (pos1 is not (Court same, _) || same.Id != c2.Id))
                 MarkCourtLineupChanged(c2);
 
+            RefreshNextUp(propose: false);
             PersistState();
             OnChange?.Invoke();
         }
@@ -661,6 +833,7 @@ namespace RallyBoard.Services
                 court.Reset();
 
             Waiting.Clear();
+            ClearNextUp();
             PersistState();
             OnChange?.Invoke();
         }
@@ -683,6 +856,7 @@ namespace RallyBoard.Services
 
             court.PendingMatchmaking = null;
 
+            ClearNextUp();
             PersistState();
             OnChange?.Invoke();
         }
@@ -758,6 +932,7 @@ namespace RallyBoard.Services
 
             court.Reset();
 
+            // Leave Next Up intact so the ensuing next-game prompt can consume it.
             PersistState();
             OnChange?.Invoke();
         }
@@ -1071,16 +1246,40 @@ namespace RallyBoard.Services
 
         private void OnModeChanged()
         {
-            ClearSessionBoard();
+            // One clear + one bulk restore — CheckInPlayer per attendee was N PersistState/OnChange storms.
+            foreach (var court in Courts)
+                court.Reset();
+
+            Waiting.Clear();
+            ClearNextUp();
+
             try
             {
-                foreach (var playerId in _sessions.GetAttendeeIds(_sessions.CurrentSessionId))
-                    CheckInPlayer(playerId);
+                var attendeeIds = _sessions.GetAttendeeIds(_sessions.CurrentSessionId);
+                if (attendeeIds.Count > 0)
+                {
+                    using var db = _dbFactory.CreateDbContext();
+                    var players = db.Players
+                        .AsNoTracking()
+                        .Where(p => attendeeIds.Contains(p.Id) && p.IsTest == _sessions.IsTestMode)
+                        .OrderBy(p => p.Name)
+                        .ToList();
+
+                    foreach (var player in players)
+                    {
+                        player.WaitingSince = null;
+                        MarkPlayerWaiting(player);
+                        Waiting.Add(player);
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"CourtAllocationService mode switch restore error: {ex}");
             }
+
+            PersistState();
+            OnChange?.Invoke();
         }
 
         public void Dispose()

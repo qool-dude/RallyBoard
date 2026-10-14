@@ -50,7 +50,7 @@
 
     private List<Player> ActiveWaiting =>
         Allocation.Waiting
-            .Where(p => !p.IsPaused)
+            .Where(p => !p.IsPaused && !Allocation.IsNextUpPlayer(p.Id))
             .OrderByDescending(p => p.GetWaitingElapsed())
             .ToList();
 

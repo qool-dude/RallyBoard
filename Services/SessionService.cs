@@ -43,8 +43,8 @@ public class SessionService
         IsTestMode = isTest;
         _currentSessionId = GetOrCreateCurrentSessionId();
         InvalidatePaidCache();
+        // ModeChanged only — also raising OnChange made Dashboard/StatsTicker reload twice.
         ModeChanged?.Invoke();
-        OnChange?.Invoke();
     }
 
     public void EnsureSchema()
@@ -451,6 +451,212 @@ public class SessionService
             .ThenByDescending(r => r.WinRate)
             .ThenByDescending(r => r.Games)
             .ThenBy(r => r.Name)
+            .ToList();
+    }
+
+    public PlayerProfileDetail? GetPlayerProfile(Guid playerId)
+    {
+        using var db = _dbFactory.CreateDbContext();
+
+        var player = db.Players.AsNoTracking()
+            .FirstOrDefault(p => p.Id == playerId && p.IsTest == IsTestMode);
+        if (player is null)
+            return null;
+
+        var rankings = GetRankings(null);
+        var overallRank = rankings.FindIndex(r => r.PlayerId == playerId) + 1;
+        if (overallRank <= 0)
+            overallRank = rankings.Count + 1;
+
+        var ratingWeights = _matchmakingSettings.Current.Rating;
+        var defaultRating = ratingWeights.DefaultRating;
+
+        var sessions = db.Sessions
+            .Where(s => s.IsTest == IsTestMode)
+            .OrderBy(s => s.Date)
+            .ThenBy(s => s.StartedAt)
+            .AsNoTracking()
+            .Select(s => new { s.Id, s.Date, s.Name, s.StartedAt })
+            .ToList();
+
+        var games = db.Games
+            .Where(g => g.Session.IsTest == IsTestMode && g.Players.Any(gp => gp.PlayerId == playerId))
+            .Include(g => g.Players)
+            .AsNoTracking()
+            .OrderBy(g => g.EndedAt)
+            .ToList();
+
+        var gamesBySession = games.GroupBy(g => g.SessionId).ToDictionary(g => g.Key, g => g.ToList());
+        var timeline = new List<PlayerSessionPoint>();
+
+        for (var i = 0; i < sessions.Count; i++)
+        {
+            var session = sessions[i];
+            if (!gamesBySession.TryGetValue(session.Id, out var sessionGames) || sessionGames.Count == 0)
+                continue;
+
+            var sGames = 0;
+            var sWins = 0;
+            var sLosses = 0;
+            var sPf = 0;
+            var sPa = 0;
+            double sClose = 0;
+
+            foreach (var game in sessionGames)
+            {
+                var gp = game.Players.FirstOrDefault(p => p.PlayerId == playerId);
+                if (gp is null) continue;
+
+                sGames++;
+                var won = game.WinnerSide == gp.TeamSide;
+                var lost = game.WinnerSide is "TeamA" or "TeamB" && game.WinnerSide != gp.TeamSide;
+                if (won) sWins++;
+                if (lost) sLosses++;
+
+                var pf = gp.TeamSide == "TeamA" ? game.TeamAScore ?? 0 : game.TeamBScore ?? 0;
+                var pa = gp.TeamSide == "TeamA" ? game.TeamBScore ?? 0 : game.TeamAScore ?? 0;
+                sPf += pf;
+                sPa += pa;
+                sClose += PlayerRatingCalculator.GameCloseness(game.TeamAScore, game.TeamBScore);
+            }
+
+            if (sGames == 0) continue;
+
+            var sessionWinRate = Math.Round(100.0 * sWins / sGames, 1);
+            var sessionRating = PlayerRatingCalculator.ComputeRating(
+                sGames, sWins, sClose, sGames, ratingWeights);
+
+            // Cumulative rating as of the end of this session (recency relative to this point)
+            double wGames = 0, wWins = 0, wClose = 0;
+            var rawGames = 0;
+            for (var j = 0; j <= i; j++)
+            {
+                if (!gamesBySession.TryGetValue(sessions[j].Id, out var priorGames))
+                    continue;
+
+                var recencyRank = i - j; // 0 = current session
+                var weight = PlayerRatingCalculator.SessionRecencyWeight(recencyRank, ratingWeights);
+
+                foreach (var game in priorGames)
+                {
+                    var gp = game.Players.FirstOrDefault(p => p.PlayerId == playerId);
+                    if (gp is null) continue;
+
+                    rawGames++;
+                    var won = game.WinnerSide == gp.TeamSide;
+                    var closeness = PlayerRatingCalculator.GameCloseness(game.TeamAScore, game.TeamBScore);
+                    wGames += weight;
+                    wWins += won ? weight : 0;
+                    wClose += closeness * weight;
+                }
+            }
+
+            var cumulative = PlayerRatingCalculator.ComputeRating(
+                wGames, wWins, wClose, rawGames, ratingWeights);
+
+            var label = string.IsNullOrWhiteSpace(session.Name)
+                ? session.Date.ToString("d MMM yy")
+                : session.Name;
+
+            timeline.Add(new PlayerSessionPoint(
+                session.Id,
+                session.Date,
+                label,
+                sGames,
+                sWins,
+                sLosses,
+                sessionWinRate,
+                sessionRating,
+                cumulative,
+                sPf,
+                sPa));
+        }
+
+        var global = _matchmakingService.GetGlobalRatings(IsTestMode)
+            .FirstOrDefault(r => r.PlayerId == playerId);
+
+        var gamesTotal = global?.Games ?? timeline.Sum(t => t.Games);
+        var winsTotal = global?.Wins ?? timeline.Sum(t => t.Wins);
+        var lossesTotal = global?.Losses ?? timeline.Sum(t => t.Losses);
+        var winRate = global?.WinRate ?? (gamesTotal > 0 ? Math.Round(100.0 * winsTotal / gamesTotal, 1) : 0);
+        var avgCloseness = global?.Closeness ?? 50;
+        var rating = global?.Rating ?? defaultRating;
+        var pfTotal = global?.PointsFor ?? timeline.Sum(t => t.PointsFor);
+        var paTotal = global?.PointsAgainst ?? timeline.Sum(t => t.PointsAgainst);
+
+        // Prefer sessions with enough games for best/worst so one-game nights don't dominate
+        var eligible = timeline.Where(t => t.Games >= 2).ToList();
+        if (eligible.Count == 0)
+            eligible = timeline.ToList();
+
+        PlayerSessionPoint? best = null;
+        PlayerSessionPoint? worst = null;
+        if (eligible.Count > 0)
+        {
+            best = eligible
+                .OrderByDescending(t => t.SessionRating)
+                .ThenByDescending(t => t.WinRate)
+                .ThenByDescending(t => t.Games)
+                .First();
+            worst = eligible.Count == 1
+                ? null
+                : eligible
+                    .OrderBy(t => t.SessionRating)
+                    .ThenBy(t => t.WinRate)
+                    .ThenByDescending(t => t.Games)
+                    .First();
+        }
+
+        var recentGames = GetRecentGamesForPlayer(playerId, 12);
+
+        return new PlayerProfileDetail(
+            player.Id,
+            player.Name,
+            player.ColorIndex,
+            player.Initials,
+            overallRank,
+            Math.Max(rankings.Count, 1),
+            rating,
+            gamesTotal,
+            winsTotal,
+            lossesTotal,
+            winRate,
+            avgCloseness,
+            pfTotal,
+            paTotal,
+            timeline.Count,
+            best,
+            worst,
+            timeline,
+            recentGames);
+    }
+
+    private List<GameSummaryRow> GetRecentGamesForPlayer(Guid playerId, int limit)
+    {
+        using var db = _dbFactory.CreateDbContext();
+
+        return db.Games
+            .Where(g => g.Session.IsTest == IsTestMode && g.Players.Any(gp => gp.PlayerId == playerId))
+            .Include(g => g.Players)
+            .ThenInclude(gp => gp.Player)
+            .OrderByDescending(g => g.EndedAt)
+            .Take(limit)
+            .AsNoTracking()
+            .ToList()
+            .Select(g =>
+            {
+                var teamA = g.Players.Where(p => p.TeamSide == "TeamA").OrderBy(p => p.SlotIndex).Select(p => p.Player.Name);
+                var teamB = g.Players.Where(p => p.TeamSide == "TeamB").OrderBy(p => p.SlotIndex).Select(p => p.Player.Name);
+                return new GameSummaryRow(
+                    g.Id,
+                    g.EndedAt,
+                    g.CourtId,
+                    g.WinnerSide,
+                    g.TeamAScore,
+                    g.TeamBScore,
+                    string.Join(" & ", teamA),
+                    string.Join(" & ", teamB));
+            })
             .ToList();
     }
 

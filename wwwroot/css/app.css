@@ -623,6 +623,65 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   background: transparent;
   border-bottom-color: rgba(244, 196, 48, 0.25);
 }
+.court--next-up {
+  border-top-color: #C45C4A;
+  border-top-style: dashed;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(196, 92, 74, 0.06) 0 8px,
+      transparent 8px 16px
+    ),
+    linear-gradient(180deg, #f8ece9 0%, #fdf8f7 50%, var(--panel) 100%);
+  box-shadow: none;
+  outline: 1px dashed rgba(196, 92, 74, 0.4);
+  outline-offset: -1px;
+}
+.court--next-up .court__head {
+  background: transparent;
+  border-bottom-color: rgba(196, 92, 74, 0.18);
+}
+.court--next-up .court__head h3 {
+  color: #9A3F32;
+  letter-spacing: 0.06em;
+}
+.court--next-up .court__next-badge {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9A3F32;
+  padding: 0.2em 0.55em;
+  border: 1px solid rgba(196, 92, 74, 0.4);
+  border-radius: 999px;
+  background: rgba(196, 92, 74, 0.08);
+}
+.court--next-up .court__next-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: rgba(154, 63, 50, 0.55);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.court--next-up .court__next-close:hover {
+  color: #9A3F32;
+  background: rgba(196, 92, 74, 0.12);
+}
+.court--next-up .court__field {
+  background: linear-gradient(160deg, #B85A4A, #8E3A2E);
+}
+.court--next-up .chip {
+  opacity: 0.97;
+}
 @keyframes court-live-pulse {
   0%, 100% {
     box-shadow: var(--shadow), 0 0 0 0 rgba(47, 163, 127, 0.55);
@@ -638,10 +697,17 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.9rem 1.1rem;
+  padding: 0.5rem 0.85rem;
   border-bottom: 1px solid var(--line);
 }
-.court__head h3 { font-size: 1.35rem; color: var(--court-dark); }
+.court__title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.court__head h3 { font-size: 1.35rem; color: var(--court-dark); line-height: 1.1; }
 .court__count {
   font-size: 0.72rem;
   font-weight: 700;
@@ -712,6 +778,7 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 }
 .court__team {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -749,7 +816,8 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
    ========================================================================== */
 
 .slot {
-  min-height: 56px;
+  min-height: 64px;
+  min-width: 0;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -917,7 +985,9 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  line-height: 1.15;
 }
 .chip button,
 .chip__remove,
@@ -1045,7 +1115,29 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 .chip--5 .chip__avatar { background: #E85D9C; }
 
 /* Chips sitting inside a dark court slot need the pill itself to read on teal */
-.slot .chip { background: rgba(255,255,255,0.95); }
+.slot .chip {
+  background: rgba(255,255,255,0.95);
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.25rem;
+  padding: 0.3rem 0.3rem 0.3rem 0.3rem;
+  align-items: center;
+}
+.slot .chip__menu-btn {
+  padding: 0.1rem 0.15rem;
+  font-size: 1.2rem;
+}
+.slot .chip__name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-height: 1.2;
+}
 
 /* ==========================================================================
    Waiting pool
@@ -1689,6 +1781,12 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 }
 .settings-form { display: flex; flex-direction: column; gap: 1.2rem; }
 .settings-panel { padding-bottom: 1rem; }
+.settings-panel__intro {
+  margin: 0 1.2rem 1rem;
+  font-size: 0.88rem;
+  color: rgba(11, 32, 39, 0.62);
+  line-height: 1.45;
+}
 .settings-algo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -2008,6 +2106,24 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 .data-table__row--top2 .data-table__rank { color: #9AA5A8; }
 .data-table__row--top3 .data-table__rank { color: #C47A4A; }
 .data-table__name { font-weight: 600; }
+.data-table__player-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--court-dark);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(20, 92, 107, 0.28);
+  text-underline-offset: 0.18em;
+}
+.data-table__player-link:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
 .data-table__rating { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--court-dark); }
 .data-table__winner { font-weight: 700; color: var(--court-dark); }
 .data-table__score { font-variant-numeric: tabular-nums; font-weight: 600; text-align: center; }
@@ -2197,26 +2313,263 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
   .stats-ticker { margin-left: 0; max-width: none; width: 100%; flex-basis: 100%; }
 }
 
-/* Make waiting/player chips wider and prevent name wrapping */
-.waiting-pool .player-chip,
-.player-chip.waiting,
-.chip.waiting,
-.chip.player-chip,
-.player-chip
-{
-  min-width: 140px; /* increase as needed */
+/* Waiting-pool chips only — do not apply to court slots */
+.waiting-pool .chip {
+  min-width: 140px;
   max-width: 260px;
-  display: inline-block;
-  padding: 6px 10px;
+}
+
+.waiting-pool .chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Player profile modal
+   ========================================================================== */
+
+.player-profile-modal {
+  width: min(720px, 96vw);
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  padding: 0 0 0.35rem;
+}
+.player-profile-modal .modal-panel__head {
+  padding: 1.15rem 1.5rem;
+}
+.player-profile-modal .player-profile__stats,
+.player-profile-modal .player-profile__highlights,
+.player-profile-modal .player-profile__chart-block,
+.player-profile-modal .player-profile__sessions,
+.player-profile-modal .player-profile__games {
+  margin-left: 1.5rem;
+  margin-right: 1.5rem;
+}
+.player-profile-modal .modal-panel__actions {
+  padding: 1rem 1.5rem 1.35rem;
+}
+.player-profile__title {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+.player-profile__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.player-profile__rank {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: rgba(11, 32, 39, 0.55);
+}
+.player-profile__rank strong { color: var(--court-dark); }
+.player-profile__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 0.65rem;
+  margin: 0.25rem 0 1rem;
+}
+.player-profile__stat {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.5rem;
+  text-align: center;
+}
+.player-profile__stat-value {
+  display: block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  color: var(--court-dark);
+}
+.player-profile__stat-label {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(11, 32, 39, 0.45);
+}
+.player-profile__highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+}
+.player-profile__highlight {
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: rgba(11, 32, 39, 0.65);
+}
+.player-profile__highlight strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.player-profile__highlight-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.player-profile__highlight--best {
+  background: linear-gradient(180deg, #e8f7f1 0%, #f3faf7 100%);
+  border: 1px solid rgba(47, 163, 127, 0.28);
+}
+.player-profile__highlight--best .player-profile__highlight-label { color: #2FA37F; }
+.player-profile__highlight--worst {
+  background: linear-gradient(180deg, #f8ece9 0%, #fdf8f7 100%);
+  border: 1px solid rgba(196, 92, 74, 0.28);
+}
+.player-profile__highlight--worst .player-profile__highlight-label { color: #9A3F32; }
+.player-profile__muted { color: rgba(11, 32, 39, 0.45); font-size: 0.88rem; }
+.player-profile__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+.player-profile__section-head h4 {
+  font-size: 1.1rem;
+  color: var(--court-dark);
+}
+.player-profile__section-head span {
+  font-size: 0.78rem;
+  color: rgba(11, 32, 39, 0.45);
+}
+.player-profile__chart-block,
+.player-profile__sessions,
+.player-profile__games {
+  margin-bottom: 1.15rem;
+}
+.player-profile__chart {
+  background: linear-gradient(180deg, #f7faf9 0%, #fff 55%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem 0.45rem;
+}
+.player-profile__chart svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+.player-profile__chart-axis {
+  stroke: rgba(11, 32, 39, 0.2);
+  stroke-width: 1;
+}
+.player-profile__chart-grid {
+  stroke: rgba(11, 32, 39, 0.08);
+  stroke-width: 1;
+}
+.player-profile__chart-ylabel {
+  fill: rgba(11, 32, 39, 0.4);
+  font-size: 11px;
+  font-family: var(--font-body);
+}
+.player-profile__chart-line {
+  stroke: var(--court);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.player-profile__chart-fill {
+  fill: rgba(20, 92, 107, 0.12);
+  stroke: none;
+}
+.player-profile__chart-dot {
+  fill: #fff;
+  stroke: var(--court);
+  stroke-width: 2;
+}
+.player-profile__chart-xlabels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  padding: 0 0.2rem 0 1.6rem;
+}
+.player-profile__chart-xlabels span {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 0.68rem;
+  color: rgba(11, 32, 39, 0.45);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  vertical-align: middle;
 }
-
-/* Optional: allow chips to grow on hover to show full name */
-.player-chip:hover,
-.chip:hover {
-  max-width: 400px;
-  white-space: normal;
+.player-profile__single-point {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+.player-profile__single-point strong {
+  font-size: 1.6rem;
+  color: var(--court-dark);
+}
+.player-profile__session-name { font-weight: 600; }
+.player-profile__session-date {
+  font-size: 0.72rem;
+  color: rgba(11, 32, 39, 0.45);
+}
+.data-table--compact th,
+.data-table--compact td {
+  padding: 0.4rem 0.45rem;
+  font-size: 0.82rem;
+}
+.player-profile__game-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.player-profile__game-list li {
+  display: grid;
+  grid-template-columns: 7.5rem 4.5rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.player-profile__game-list em {
+  font-style: normal;
+  color: rgba(11, 32, 39, 0.4);
+  padding: 0 0.25rem;
+}
+.player-profile__game-when {
+  color: rgba(11, 32, 39, 0.45);
+  font-size: 0.78rem;
+}
+.player-profile__game-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--court-dark);
+}
+@media (max-width: 640px) {
+  .player-profile__game-list li {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
 }
