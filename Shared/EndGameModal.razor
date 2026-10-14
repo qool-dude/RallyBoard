@@ -109,48 +109,64 @@
             }
             else
             {
-                <p class="modal-panel__hint">Tap a team to mark the winner. Drag players to adjust the line-up.</p>
+                <p class="modal-panel__hint">Tap a team heading to mark the winner and/or enter the losing score. Drag players to adjust the line-up.</p>
                 <p class="end-game__score-benefit">Keeping the score helps us give you more competitive matches.</p>
 
                 <div class="court__field end-game__field">
-                    <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")"
-                         role="button"
-                         tabindex="0"
-                         title="Team A wins"
-                         @onclick='() => SelectWinner("TeamA")'
-                         @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
+                    <div class="court__team end-game__team @(Winner == "TeamA" ? "end-game__team--winner" : "")">
                         <div class="end-game__team-score">
-                            <span class="end-game__score-label">Team A</span>
-                            <div class="stepper end-game__score-stepper" @onclick:stopPropagation>
-                                <button type="button"
-                                        aria-label="Decrease Team A score"
-                                        @onclick="() => AdjustScore(true, -1)"
-                                        @onpointerdown="() => StartScoreRepeat(true, -1)"
-                                        @onpointerup="StopScoreRepeat"
-                                        @onpointercancel="StopScoreRepeat"
-                                        @onpointerleave="StopScoreRepeat">&minus;</button>
-                                <input @bind="_teamAScore" @bind:event="oninput" placeholder="-" />
-                                <button type="button"
-                                        aria-label="Increase Team A score"
-                                        @onclick="() => AdjustScore(true, 1)"
-                                        @onpointerdown="() => StartScoreRepeat(true, 1)"
-                                        @onpointerup="StopScoreRepeat"
-                                        @onpointercancel="StopScoreRepeat"
-                                        @onpointerleave="StopScoreRepeat">+</button>
+                            <button type="button"
+                                    class="end-game__score-label"
+                                    title="Team A wins"
+                                    @onclick='() => SelectWinner("TeamA")'
+                                    @onkeydown='(e) => OnTeamKey(e, "TeamA")'>
+                                Team A
+                            </button>
+                            <div class="end-game__score-controls">
+                                <div class="stepper end-game__score-stepper">
+                                    <button type="button"
+                                            aria-label="Decrease Team A score"
+                                            @onclick="() => AdjustScore(true, -1)"
+                                            @onpointerdown="() => StartScoreRepeat(true, -1)"
+                                            @onpointerup="StopScoreRepeat"
+                                            @onpointercancel="StopScoreRepeat"
+                                            @onpointerleave="StopScoreRepeat">&minus;</button>
+                                    <input value="@(_teamAScore?.ToString() ?? "")"
+                                           placeholder="-"
+                                           inputmode="numeric"
+                                           @oninput="e => OnScoreInput(true, e)" />
+                                    <button type="button"
+                                            aria-label="Increase Team A score"
+                                            @onclick="() => AdjustScore(true, 1)"
+                                            @onpointerdown="() => StartScoreRepeat(true, 1)"
+                                            @onpointerup="StopScoreRepeat"
+                                            @onpointercancel="StopScoreRepeat"
+                                            @onpointerleave="StopScoreRepeat">+</button>
+                                </div>
+                                <label class="end-game__score-slider">
+                                    <input type="range"
+                                           min="0"
+                                           max="@_scoreSliderMax"
+                                           value="@(_teamAScore ?? 0)"
+                                           @oninput="e => SetScoreFromSlider(true, e)"
+                                           aria-label="Team A score slider" />
+                                </label>
                             </div>
                         </div>
-                        <CourtSlot Court="Court"
-                                   Index="0"
-                                   Player="Court.Slots[0]"
-                                   ShowRemove="true"
-                                   AllowRemove="false"
-                                   SwapCandidates="TeamBPlayers" />
-                        <CourtSlot Court="Court"
-                                   Index="1"
-                                   Player="Court.Slots[1]"
-                                   ShowRemove="true"
-                                   AllowRemove="false"
-                                   SwapCandidates="TeamBPlayers" />
+                        <div class="end-game__slots">
+                            <CourtSlot Court="Court"
+                                       Index="0"
+                                       Player="Court.Slots[0]"
+                                       ShowRemove="true"
+                                       AllowRemove="false"
+                                       SwapCandidates="TeamBPlayers" />
+                            <CourtSlot Court="Court"
+                                       Index="1"
+                                       Player="Court.Slots[1]"
+                                       ShowRemove="true"
+                                       AllowRemove="false"
+                                       SwapCandidates="TeamBPlayers" />
+                        </div>
                         @if (Winner == "TeamA")
                         {
                             <span class="end-game__badge">Winner</span>
@@ -159,44 +175,60 @@
 
                     <div class="court__net" aria-hidden="true"></div>
 
-                    <div class="court__team end-game__team @(Winner == "TeamB" ? "end-game__team--winner" : "")"
-                         role="button"
-                         tabindex="0"
-                         title="Team B wins"
-                         @onclick='() => SelectWinner("TeamB")'
-                         @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
+                    <div class="court__team end-game__team @(Winner == "TeamB" ? "end-game__team--winner" : "")">
                         <div class="end-game__team-score">
-                            <span class="end-game__score-label">Team B</span>
-                            <div class="stepper end-game__score-stepper" @onclick:stopPropagation>
-                                <button type="button"
-                                        aria-label="Decrease Team B score"
-                                        @onclick="() => AdjustScore(false, -1)"
-                                        @onpointerdown="() => StartScoreRepeat(false, -1)"
-                                        @onpointerup="StopScoreRepeat"
-                                        @onpointercancel="StopScoreRepeat"
-                                        @onpointerleave="StopScoreRepeat">&minus;</button>
-                                <input @bind="_teamBScore" @bind:event="oninput" placeholder="-" />
-                                <button type="button"
-                                        aria-label="Increase Team B score"
-                                        @onclick="() => AdjustScore(false, 1)"
-                                        @onpointerdown="() => StartScoreRepeat(false, 1)"
-                                        @onpointerup="StopScoreRepeat"
-                                        @onpointercancel="StopScoreRepeat"
-                                        @onpointerleave="StopScoreRepeat">+</button>
+                            <button type="button"
+                                    class="end-game__score-label"
+                                    title="Team B wins"
+                                    @onclick='() => SelectWinner("TeamB")'
+                                    @onkeydown='(e) => OnTeamKey(e, "TeamB")'>
+                                Team B
+                            </button>
+                            <div class="end-game__score-controls">
+                                <div class="stepper end-game__score-stepper">
+                                    <button type="button"
+                                            aria-label="Decrease Team B score"
+                                            @onclick="() => AdjustScore(false, -1)"
+                                            @onpointerdown="() => StartScoreRepeat(false, -1)"
+                                            @onpointerup="StopScoreRepeat"
+                                            @onpointercancel="StopScoreRepeat"
+                                            @onpointerleave="StopScoreRepeat">&minus;</button>
+                                    <input value="@(_teamBScore?.ToString() ?? "")"
+                                           placeholder="-"
+                                           inputmode="numeric"
+                                           @oninput="e => OnScoreInput(false, e)" />
+                                    <button type="button"
+                                            aria-label="Increase Team B score"
+                                            @onclick="() => AdjustScore(false, 1)"
+                                            @onpointerdown="() => StartScoreRepeat(false, 1)"
+                                            @onpointerup="StopScoreRepeat"
+                                            @onpointercancel="StopScoreRepeat"
+                                            @onpointerleave="StopScoreRepeat">+</button>
+                                </div>
+                                <label class="end-game__score-slider">
+                                    <input type="range"
+                                           min="0"
+                                           max="@_scoreSliderMax"
+                                           value="@(_teamBScore ?? 0)"
+                                           @oninput="e => SetScoreFromSlider(false, e)"
+                                           aria-label="Team B score slider" />
+                                </label>
                             </div>
                         </div>
-                        <CourtSlot Court="Court"
-                                   Index="2"
-                                   Player="Court.Slots[2]"
-                                   ShowRemove="true"
-                                   AllowRemove="false"
-                                   SwapCandidates="TeamAPlayers" />
-                        <CourtSlot Court="Court"
-                                   Index="3"
-                                   Player="Court.Slots[3]"
-                                   ShowRemove="true"
-                                   AllowRemove="false"
-                                   SwapCandidates="TeamAPlayers" />
+                        <div class="end-game__slots">
+                            <CourtSlot Court="Court"
+                                       Index="2"
+                                       Player="Court.Slots[2]"
+                                       ShowRemove="true"
+                                       AllowRemove="false"
+                                       SwapCandidates="TeamAPlayers" />
+                            <CourtSlot Court="Court"
+                                       Index="3"
+                                       Player="Court.Slots[3]"
+                                       ShowRemove="true"
+                                       AllowRemove="false"
+                                       SwapCandidates="TeamAPlayers" />
+                        </div>
                         @if (Winner == "TeamB")
                         {
                             <span class="end-game__badge">Winner</span>
@@ -230,6 +262,7 @@
     private string? Winner { get; set; }
     private int? _teamAScore;
     private int? _teamBScore;
+    private int _scoreSliderMax = 30;
     private bool _gameEnded;
     private string? _validationMessage;
     private System.Threading.Timer? _scoreRepeatTimer;
@@ -320,6 +353,7 @@
         Winner = null;
         _teamAScore = null;
         _teamBScore = null;
+        _scoreSliderMax = 30;
         _gameEnded = false;
         _validationMessage = null;
         _boundPreviewSlots = null;
@@ -333,6 +367,13 @@
         Winner = null;
     }
 
+    private void EnsureSliderMax(int score)
+    {
+        // Expand by 10 when score reaches the current max (starts at 30); never shrink.
+        while (score >= _scoreSliderMax)
+            _scoreSliderMax += 10;
+    }
+
     private void SelectWinner(string winner)
     {
         Winner = winner;
@@ -341,14 +382,16 @@
         switch (winner)
         {
             case "TeamA":
-                _teamAScore = 21;
-                _teamBScore = 15;
+                _teamAScore = WinningScoreFor(_teamBScore ?? 15);
+                _teamBScore ??= 15;
                 break;
             case "TeamB":
-                _teamAScore = 15;
-                _teamBScore = 21;
+                _teamBScore = WinningScoreFor(_teamAScore ?? 15);
+                _teamAScore ??= 15;
                 break;
         }
+
+        EnsureSliderMax(Math.Max(_teamAScore ?? 0, _teamBScore ?? 0));
     }
 
     private void OnTeamKey(KeyboardEventArgs e, string winner)
@@ -357,12 +400,90 @@
             SelectWinner(winner);
     }
 
+    private static int WinningScoreFor(int losingScore) =>
+        // Badminton: first to 21, win by 2 (no hard cap)
+        Math.Max(21, losingScore + 2);
+
+    private void OnScoreInput(bool teamA, ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (teamA) _teamAScore = null;
+            else _teamBScore = null;
+            return;
+        }
+
+        if (int.TryParse(raw, out var value))
+            SetScore(teamA, value);
+    }
+
     private void AdjustScore(bool teamA, int delta)
     {
-        if (teamA)
-            _teamAScore = Math.Max(0, (_teamAScore ?? 0) + delta);
+        var current = teamA ? (_teamAScore ?? 0) : (_teamBScore ?? 0);
+        SetScore(teamA, current + delta);
+    }
+
+    private void SetScoreFromSlider(bool teamA, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value))
+            return;
+
+        SetScore(teamA, value);
+    }
+
+    private void SetScore(bool teamA, int score)
+    {
+        var value = Math.Max(0, score);
+
+        if (Winner is null)
+        {
+            // First score entry without a winner → treat this side as the loser
+            if (teamA)
+            {
+                _teamAScore = value;
+                Winner = "TeamB";
+                _teamBScore = WinningScoreFor(value);
+            }
+            else
+            {
+                _teamBScore = value;
+                Winner = "TeamA";
+                _teamAScore = WinningScoreFor(value);
+            }
+
+            EnsureSliderMax(Math.Max(_teamAScore ?? 0, _teamBScore ?? 0));
+            _validationMessage = null;
+            return;
+        }
+
+        var editingLoser =
+            (Winner == "TeamA" && !teamA) ||
+            (Winner == "TeamB" && teamA);
+
+        if (editingLoser)
+        {
+            if (teamA)
+            {
+                _teamAScore = value;
+                _teamBScore = WinningScoreFor(value);
+            }
+            else
+            {
+                _teamBScore = value;
+                _teamAScore = WinningScoreFor(value);
+            }
+        }
+        else if (teamA)
+        {
+            _teamAScore = value;
+        }
         else
-            _teamBScore = Math.Max(0, (_teamBScore ?? 0) + delta);
+        {
+            _teamBScore = value;
+        }
+
+        EnsureSliderMax(Math.Max(_teamAScore ?? 0, _teamBScore ?? 0));
     }
 
     private void StartScoreRepeat(bool teamA, int delta)

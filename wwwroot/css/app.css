@@ -1524,7 +1524,7 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 }
 
 .end-game__team {
-  cursor: pointer;
+  cursor: default;
   border: 2px solid transparent;
   border-radius: 6px;
   justify-content: flex-start;
@@ -1533,12 +1533,7 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 }
 
 .end-game__team:hover {
-  border-color: rgba(244, 246, 241, 0.35);
-}
-
-.end-game__team:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 2px;
+  border-color: rgba(244, 246, 241, 0.2);
 }
 
 .end-game__team--winner {
@@ -1575,19 +1570,58 @@ main { flex: 1; max-width: var(--container); margin: 0 auto; width: 100%; paddin
 
 .end-game__score-label {
   width: 100%;
+  margin-bottom: 0.45rem;
   padding: 0.35rem 2.8rem;
+  border: none;
   border-radius: 4px;
   background: rgba(244, 246, 241, 0.14);
+  font: inherit;
   font-size: 0.92rem;
   font-weight: 700;
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--court-line);
+  cursor: pointer;
+}
+.end-game__score-label:hover {
+  background: rgba(244, 246, 241, 0.22);
+}
+.end-game__score-label:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.end-game__score-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: default;
 }
 
 .end-game__team-score .end-game__score-stepper {
   align-self: center;
+}
+
+.end-game__score-slider {
+  display: flex;
+  align-items: center;
+  width: min(100%, 220px);
+  cursor: default;
+}
+.end-game__score-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.end-game__slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  cursor: default;
 }
 
 .end-game__score-stepper span {
